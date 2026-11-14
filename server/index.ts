@@ -8,7 +8,7 @@ import { createRemoteJWKSet, jwtVerify } from 'jose';
 import { collections, getDb } from './db';
 import { EMBED_PROVIDER, warmEmbeddings } from './embed';
 import { hear, say, voiceEnabled } from './voice';
-import { blockingRule, computeTags, detectLang, LANGS, parseSpokenLesson, type Lang } from './domain';
+import { blockingRule, computeTags, detectLang, LANGS, parseSpokenLesson, spokenAddress, type Lang } from './domain';
 import {
   ask, forgetTeacher, lineage, onBroadcast, publish, rollback, scoreboard, startAllWorkers, startWorker, stopWorker, type Teacher,
 } from './fleet';
@@ -65,7 +65,9 @@ app.post('/api/hear', express.raw({ type: () => true, limit: '6mb' }), wrap(asyn
   if (!isLocal(req) && !teacher?.verified) throw Object.assign(new Error('sign in to use voice'), { status: 401 });
   const mode = req.query.mode === 'ask' ? 'ask' : 'teach';
   const h = await hear(req.body as Buffer, String(req.headers['content-type'] ?? 'audio/webm'), mode);
-  return { text: h.text, lang: mode === 'ask' ? detectLang(h.text, { code: h.code, probability: h.probability }) : 'en', heardAs: h.code, lesson: mode === 'teach' ? parseSpokenLesson(h.text) : undefined };
+  if (!h.text) return { text: '', empty: true };
+  const addr = mode === 'ask' ? spokenAddress(h.text) : { homeId: null, text: h.text };
+  return { text: addr.text, heard: h.text, homeId: addr.homeId, lang: mode === 'ask' ? detectLang(addr.text, { code: h.code, probability: h.probability }) : 'en', heardAs: h.code, lesson: mode === 'teach' ? parseSpokenLesson(h.text) : undefined };
 }));
 
 // Deterministic check of a direct instruction against a home's rules. Read-only: nothing is taught or run.

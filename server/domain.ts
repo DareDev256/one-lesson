@@ -246,3 +246,19 @@ export function detectLang(text: string, hint?: { code?: string | null; probabil
 
 /** "Who taught you that?" in the shipped languages. */
 export const PROVENANCE_ASK = /(who taught (you|that|this)|where did you learn|qui t'a appris|qui vous a appris|qui(é|e)n te (lo )?ense(ñ|n)(ó|o)|谁教(你|的))/i;
+
+// ---------------------------------------------------------------- spoken address ("Home two, put the dishes away")
+
+const NUM: Record<string, number> = { one: 1, won: 1, two: 2, to: 2, too: 2, three: 3, four: 4, for: 4, five: 5, six: 6, un: 1, deux: 2, trois: 3, quatre: 4, cinq: 5, uno: 1, dos: 2, tres: 3, cuatro: 4, cinco: 5, seis: 6 };
+
+/** If the speaker names a home ("Hey Home two, …", "maison cinq, …"), route the question there and drop the address. */
+export function spokenAddress(text: string): { homeId: string | null; text: string } {
+  const re = /(?:^|[\s,.!?])(?:hey|ok|okay|yo|hi)?[\s,]*(?:home|maison|casa|robot)\s*(?:number\s*)?(one|won|two|to|too|three|four|for|five|six|un|deux|trois|quatre|cinq|uno|dos|tres|cuatro|cinco|seis|[1-6])\b[\s,.:!?-]*/i;
+  const m = text.match(re);
+  if (!m) return { homeId: null, text: text.trim() };
+  const k = m[1].toLowerCase();
+  const n = /^[1-6]$/.test(k) ? Number(k) : NUM[k];
+  if (!n) return { homeId: null, text: text.trim() };
+  const rest = (text.slice(0, m.index) + ' ' + text.slice((m.index ?? 0) + m[0].length)).replace(/^\s*(hey|ok|okay)[\s,]*/i, '').replace(/\s+/g, ' ').trim();
+  return { homeId: `home-${n}`, text: rest || text.trim() };
+}

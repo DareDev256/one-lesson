@@ -97,9 +97,12 @@ export async function hear(audio: Buffer, mime: string, mode: 'ask' | 'teach' = 
   const form = new FormData();
   form.append('model_id', STT_MODEL);
   if (mode === 'teach') form.append('language_code', 'en');
+  form.append('tag_audio_events', 'false');
   form.append('file', new Blob([new Uint8Array(audio)], { type: mime || 'audio/webm' }), 'speech.webm');
   const res = await fetch('https://api.elevenlabs.io/v1/speech-to-text', { method: 'POST', headers: { 'xi-api-key': KEY }, body: form });
   if (!res.ok) throw Object.assign(new Error(`elevenlabs stt ${res.status}: ${(await res.text()).slice(0, 160)}`), { status: 502 });
   const j: any = await res.json();
-  return { text: String(j.text ?? '').trim(), code: j.language_code ?? null, probability: j.language_probability ?? null };
+  // Sounds are not words: drop audio-event tags like [click] or [background noise] so they never become a question.
+  const text = String(j.text ?? '').replace(/\[[^\]]*\]|\([^)]*\)/g, ' ').replace(/\s+/g, ' ').trim();
+  return { text, code: j.language_code ?? null, probability: j.language_probability ?? null };
 }

@@ -333,7 +333,13 @@ export default function App() {
         </div>
         <input value={askText} onChange={(e) => setAskText(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && doAsk()} />
         <button className="primary" disabled={asking} onClick={() => doAsk()}>{asking ? 'asking…' : 'Ask'}</button>
-        <Mic mode="ask" hotkey={panel !== 'teach' && !agentOpen} label="ask (V)" onResult={(r) => { if (r.text) { setChip({ text: `ElevenLabs Scribe heard · ${(r.lang ?? 'en').toUpperCase()} detected`, until: Date.now() + 6000 }); setAskText(r.text); doAsk(askHome, r.text, r.lang); } }} />
+        <Mic mode="ask" hotkey={panel !== 'teach' && !agentOpen} label="ask (V)" onResult={(r) => {
+          if (!r.text) { setChip({ text: "Didn't catch that. Hold V the whole time you speak.", until: Date.now() + 5000 }); return; }
+          const target = r.homeId ?? askHome;
+          if (r.homeId) setAskHome(r.homeId);
+          setChip({ text: `ElevenLabs Scribe heard · ${(r.lang ?? 'en').toUpperCase()} detected${r.homeId ? ` · to ${r.homeId.replace('home-', 'Home ')}` : ''}`, until: Date.now() + 6000 });
+          setAskText(r.text); doAsk(target, r.text, r.lang);
+        }} />
         {chip && chip.until > Date.now() && <span className="chip">{chip.text}</span>}
         <div className="answer">
           {askOut && <><b>{fleet.homes.find((h) => h._id === askOut.homeId)?.name}{askOut.lang && askOut.lang !== 'en' ? ` [${askOut.lang.toUpperCase()}]` : ''}:</b> {askOut.say} {askOut.run && <em>{where(askOut.run.path.map((p: any) => (p.action === 'pick' ? { action: 'pick', objectType: p.objectType } : { action: 'place', targetType: p.targetType })))}</em>} {askOut.matches?.[0] && <span className="score">top match {askOut.matches[0].score}{askOut.matches[0].blockedBy ? ` (blocked: ${askOut.matches[0].blockedBy})` : ''}</span>}</>}
@@ -355,6 +361,7 @@ export default function App() {
           {fleet.homes.find((h) => h._id === teachHome) && <Kitchen home={fleet.homes.find((h) => h._id === teachHome)!} cell={42} onPick={onPick} />}
           <div className="drawer-row">
             <Mic mode="teach" hotkey={panel === 'teach'} label="teach by voice (V)" onResult={(r) => {
+              if (!r.text) { setChip({ text: "Didn't catch that. Hold V the whole time you say the lesson.", until: Date.now() + 5000 }); return; }
               setHeard(r.text);
               setChip({ text: `ElevenLabs Scribe heard · ${r.lesson?.steps?.length ? `${r.lesson.steps.length / 2} moves parsed` : 'no moves found'}`, until: Date.now() + 6000 });
               if (r.lesson?.steps?.length) { setDraft(r.lesson.steps); setHeld(null); }
