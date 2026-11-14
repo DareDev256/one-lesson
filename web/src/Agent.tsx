@@ -46,6 +46,9 @@ export function AgentPanel({ open, onClose, onSpeaking, onToolResult }: {
             },
           },
           onMessage: ({ message, source }: any) => add({ who: source === 'user' ? 'you' : 'home', text: message }),
+          // Recording hook: when the demo recorder sets window.__agentAudio, keep the agent's real audio chunks with timestamps.
+          onAudio: (b64: string) => { const w = window as any; if (Array.isArray(w.__agentAudio)) w.__agentAudio.push({ t: performance.now(), b64 }); },
+          onConversationMetadata: (m: any) => { (window as any).__agentMeta = m; },
           onModeChange: ({ mode }: any) => { if (!cancelled) { setStatus(mode === 'speaking' ? 'speaking' : 'listening'); onSpeaking(mode === 'speaking'); } },
           onError: (m: string) => { setErr(m); setStatus('error'); },
           onDisconnect: () => { onSpeaking(false); if (!cancelled) setStatus('ended'); },
