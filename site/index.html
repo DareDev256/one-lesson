@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>One Lesson · governed memory for robot fleets</title>
+<meta name="description" content="Teach one robot. Every robot learns. Undo it in one click. A governed skill memory for a fleet of home robots, built today on MongoDB Atlas and ElevenLabs at Agents in Context Toronto.">
+<link rel="canonical" href="https://onelesson.jamesdare.com/">
+<meta property="og:title" content="One Lesson: teach one robot, every robot learns, undo it in one click">
+<meta property="og:description" content="Governed skill memory for robot fleets on MongoDB Atlas, with ElevenLabs voices. Built at Agents in Context Toronto, 14 Nov 2026.">
+<meta property="og:image" content="https://onelesson.jamesdare.com/media/og.jpg">
+<meta property="og:url" content="https://onelesson.jamesdare.com/">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,700..900&family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+<style>
+/* One Lesson brand: true black, one accent (signal orange), green only for "safe" state. Calm page, loud hero. */
+:root {
+  --bg: #000; --ink: #f4f4f4; --dim: #9a9a9a; --line: #1f1f1f; --panel: #0a0a0a;
+  --accent: #ff5a1f; --safe: #2fd27a; --bad: #ff3b3b;
+  --display: "Archivo", "Arial Narrow", sans-serif; --body: "IBM Plex Sans", system-ui, sans-serif; --mono: "JetBrains Mono", ui-monospace, monospace;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--bg); color: var(--ink); font: 400 17px/1.6 var(--body); }
+a { color: var(--accent); text-underline-offset: 3px; }
+.ol-wrap { max-width: 1120px; margin: 0 auto; padding-left: max(18px, env(safe-area-inset-left, 0px)); padding-right: max(18px, env(safe-area-inset-right, 0px)); }
+.ol-top { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; padding-block: 20px; border-bottom: 1px solid var(--line); }
+.ol-mark { font: 900 30px/1 var(--display); font-stretch: 64%; color: var(--accent); letter-spacing: .01em; }
+.ol-event { font: 500 13px var(--mono); color: var(--dim); flex: 1; min-width: 220px; }
+.ol-links { display: flex; gap: 10px; flex-wrap: wrap; }
+.ol-btn { font: 700 15px var(--body); text-decoration: none; padding: 10px 16px; border-radius: 10px; border: 2px solid #333; color: var(--ink); min-height: 44px; display: inline-flex; align-items: center; }
+.ol-btn.solid { background: var(--accent); border-color: var(--accent); color: #000; }
+.ol-hero { display: grid; grid-template-columns: 1fr 1.15fr; gap: 36px; align-items: center; padding-block: 44px 36px; }
+.ol-hero h1 { font: 900 clamp(46px, 7vw, 84px)/.93 var(--display); font-stretch: 66%; margin: 0 0 18px; text-wrap: balance; }
+.ol-hero h1 em { font-style: normal; color: var(--accent); }
+.ol-lede { font-size: 19px; max-width: 34em; margin: 0 0 14px; }
+.ol-built { font: 600 13px var(--mono); color: var(--dim); }
+.ol-sig { border: 1px solid var(--line); border-radius: 14px; overflow: hidden; background: var(--panel); }
+.ol-sig img { width: 100%; height: auto; display: block; aspect-ratio: 900 / 493; }
+.ol-sig figcaption { font: 600 14px var(--mono); padding: 10px 14px; color: var(--dim); }
+.ol-sig figcaption b { color: var(--bad); } .ol-sig figcaption i { color: var(--safe); font-style: normal; font-weight: 700; }
+.ol-sec { padding-block: 34px; border-top: 1px solid var(--line); }
+.ol-sec h2 { font: 800 clamp(28px, 4vw, 40px)/1.05 var(--display); font-stretch: 70%; margin: 0 0 16px; text-wrap: balance; }
+.ol-video { width: 100%; height: auto; border-radius: 14px; border: 1px solid var(--line); background: #000; display: block; aspect-ratio: 16 / 9; }
+.ol-cap { font: 500 14px var(--mono); color: var(--dim); margin-top: 10px; }
+.ol-cells { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+@media (max-width: 860px) { .ol-cells { grid-template-columns: 1fr; } }
+.ol-cell { border: 1px solid var(--line); border-radius: 14px; padding: 18px; background: var(--panel); display: grid; gap: 8px; align-content: start; min-width: 0; }
+.ol-cell b { font: 800 26px/1 var(--display); font-stretch: 70%; }
+.ol-cell p { margin: 0; font-size: 16px; }
+.ol-cell code { font: 600 13px var(--mono); color: var(--accent); }
+.ol-shots { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.ol-shots figure { margin: 0; border: 1px solid var(--line); border-radius: 14px; overflow: hidden; background: var(--panel); }
+.ol-shots img { width: 100%; height: auto; display: block; aspect-ratio: 1512 / 945; object-fit: cover; }
+.ol-shots figcaption { padding: 10px 14px; font-size: 15px; }
+.ol-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.ol-chip { font: 600 14px var(--mono); padding: 7px 12px; border-radius: 99px; border: 1px solid #333; }
+.ol-chip.el { border-color: var(--accent); color: var(--accent); }
+.ol-nums { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 14px; }
+.ol-num { border: 1px solid var(--line); border-radius: 14px; padding: 16px; }
+.ol-num b { display: block; font: 700 28px/1.1 var(--mono); color: var(--ink); white-space: nowrap; }
+.ol-num span { font-size: 15px; color: var(--dim); }
+.ol-limits { font-size: 16px; color: var(--dim); max-width: 60em; }
+.ol-foot { padding-block: 28px 44px; border-top: 1px solid var(--line); font: 500 14px var(--mono); color: var(--dim); display: flex; gap: 14px; flex-wrap: wrap; justify-content: space-between; }
+@media (max-width: 860px) { .ol-hero { grid-template-columns: 1fr; padding-block: 28px; } .ol-shots { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<div class="ol-wrap">
+  <header class="ol-top">
+    <div class="ol-mark">ONE LESSON</div>
+    <div class="ol-event">Agents in Context Toronto · MongoDB · Memory You Can Govern</div>
+    <nav class="ol-links"><a class="ol-btn" href="#demo">Watch the demo</a><a class="ol-btn solid" href="https://github.com/DareDev256/one-lesson">GitHub repo</a></nav>
+  </header>
+
+  <section class="ol-hero">
+    <div>
+      <h1>Teach one robot. Every robot learns. <em>Undo it in one click.</em></h1>
+      <p class="ol-lede">A robot fleet can learn from people safely when every lesson carries its teacher, passes each home's own rules before it spreads, and can be traced and taken back across every home at once. One Lesson is that memory layer, built on MongoDB Atlas, with ElevenLabs as its ears and voices.</p>
+      <p class="ol-built">Built today, 14 Nov 2026, at Agents in Context Toronto. First commit 10:06 AM.</p>
+    </div>
+    <figure class="ol-sig">
+      <img src="media/two-kitchens.gif" alt="Two kitchens side by side: Home 2's robot carries the knife down to the low drawer, Home 5, a kids' home, carries it up to the high cabinet" width="900" height="493">
+      <figcaption>Same words, "tidy the kitchen": Home 2 puts the knife <b>LOW</b>, Home 5 has kids and puts it <i>HIGH</i>.</figcaption>
+    </figure>
+  </section>
+
+  <section class="ol-sec" id="demo">
+    <h2>The 60-second demo</h2>
+    <video class="ol-video" controls preload="metadata" poster="media/poster.jpg" playsinline>
+      <source src="media/one-lesson-demo.mp4" type="video/mp4">
+    </video>
+    <p class="ol-cap">Recorded from a real run against the event's Atlas sandbox. Robot voices, the spoken lesson and the live Home 5 agent are ElevenLabs.</p>
+  </section>
+
+  <section class="ol-sec">
+    <h2>What the memory does</h2>
+    <div class="ol-cells">
+      <div class="ol-cell"><b>Teach</b><p>Say a lesson out loud. ElevenLabs Scribe hears it, a parser in code turns it into steps, and change streams carry it to six homes in under a second.</p><code>change streams · resume tokens</code></div>
+      <div class="ol-cell"><b>Refuse</b><p>Homes with kids refuse any lesson that puts a sharp item within a child's reach, and say why, out loud. The rule is code, not a model.</p><code>deterministic tags · per-home rules</code></div>
+      <div class="ol-cell"><b>Find</b><p>Ask any robot in English, French, Spanish or Mandarin. Atlas embeds every lesson itself and reranks, then the home's rules decide what it may use.</p><code>Automated Embedding · $vectorSearch · $rerank</code></div>
+      <div class="ol-cell"><b>Trace</b><p>"Who taught you that?" The robot answers from its lesson's family tree and the event log: teacher, parent lesson, homes that took it or refused it.</p><code>$graphLookup</code></div>
+      <div class="ol-cell"><b>Undo</b><p>One click rolls a bad lesson back, and everything built on it, in one transaction with a receipt. "Forget me" erases a teacher's identity everywhere.</p><code>transactions · receipts · TTL · $jsonSchema</code></div>
+      <div class="ol-cell"><b>Talk to it</b><p>Home 5 is a live ElevenLabs agent. Its only tools call our rule check, the home and the lineage. It has no tool to teach, roll back or forget.</p><code>ElevenLabs Agents · client tools</code></div>
+    </div>
+  </section>
+
+  <section class="ol-sec">
+    <h2>What the judges see on screen</h2>
+    <div class="ol-shots">
+      <figure><img src="media/rollback.jpg" alt="ROLLED BACK banner naming the lessons, 4 homes back on the safe version, measured milliseconds and the receipt" width="1512" height="945" loading="lazy"><figcaption>The undo: what was rolled back, how many homes, the measured milliseconds, the receipt.</figcaption></figure>
+      <figure><img src="media/agent.jpg" alt="Talking to Home 5: the ElevenLabs agent calls ask_home and answers aloud" width="1512" height="945" loading="lazy"><figcaption>Talking to Home 5: every tool call is on screen, so you can see the agent never decides safety itself.</figcaption></figure>
+    </div>
+  </section>
+
+  <section class="ol-sec">
+    <h2>Built with</h2>
+    <div class="ol-chips">
+      <span class="ol-chip">Change streams + resume tokens</span><span class="ol-chip">Automated Embedding (voyage-4)</span><span class="ol-chip">$vectorSearch</span><span class="ol-chip">$rerank (rerank-3)</span><span class="ol-chip">$graphLookup</span><span class="ol-chip">Transactions</span><span class="ol-chip">TTL index</span><span class="ol-chip">$jsonSchema</span>
+      <span class="ol-chip el">ElevenLabs Scribe</span><span class="ol-chip el">Six ElevenLabs voices</span><span class="ol-chip el">ElevenLabs Agents</span>
+    </div>
+  </section>
+
+  <section class="ol-sec">
+    <h2>Measured today</h2>
+    <div class="ol-nums">
+      <div class="ol-num"><b>0.435 → 0.639</b><span>"put the dishes away": best match before the lesson exists, then after (floor 0.60)</span></div>
+      <div class="ol-num"><b>382 · 523 ms</b><span>a lesson reaching all six homes, two saved runs, Toronto to us-west-1</span></div>
+      <div class="ol-num"><b>22 / 22</b><span>demo checks pass against the sandbox; 14 unit tests, safety guards proven by breaking them</span></div>
+      <div class="ol-num"><b>4 / 4</b><span>live agent round trips answered aloud; unsafe instructions refused by the rule check</span></div>
+    </div>
+    <p class="ol-limits">Honest limits: the fleet is simulated, and One Lesson governs which skills a fleet shares, not how motors move. Six homes on one laptop server is what we measured. Teacher names are typed and marked unverified in this build; Auth0 is in the code but off.</p>
+  </section>
+
+  <footer class="ol-foot">
+    <span>Built by James Dare at Agents in Context Toronto, 14 Nov 2026.</span>
+    <a href="https://github.com/DareDev256/one-lesson">github.com/DareDev256/one-lesson</a>
+  </footer>
+</div>
+</body>
+</html>

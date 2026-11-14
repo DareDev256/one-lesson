@@ -1,0 +1,17 @@
+{
+  "display": [
+    "Archivo"
+  ],
+  "body": "IBM Plex Sans",
+  "ground": "dark",
+  "accent": "#ff5a1f",
+  "layout": "single argument to one audience (judges), hand-built in the existing One Lesson brand",
+  "differs_from": "continuity: this is the One Lesson project's own brand (console, video, pitch page all use Archivo + #ff5a1f on true black); a judges' page must match the product it shows",
+  "override": {
+    "why": "existing One Lesson brand: the console, the demo video and the pitch page are already Archivo + #ff5a1f on black; the judges' page must look like the product it shows",
+    "at": "2026-11-14T17:53:44.113Z",
+    "clashes": [
+      "display face \"archivo\" is overused (7 of the last 20)"
+    ]
+  }
+}
