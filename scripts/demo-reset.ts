@@ -33,5 +33,9 @@ await homes.insertMany(HOMES.map((h, i) => ({
   ...h, layout: generateLayout(i), online: false, resumeToken: null, activeLessons: { 'kitchen-tidy': v1._id },
 })));
 
+// History for the seeded lesson: it reached all six homes before the demo starts.
+const seededAt = new Date(Date.now() - 60 * 60 * 1000);
+await events.insertMany(HOMES.map((h) => ({ type: 'delivered' as const, homeId: h._id, lessonId: v1._id, teacherId: JAMES.id, at: seededAt, detail: { title: v1.title, version: 1, teacherName: JAMES.name, seed: true } })));
+
 console.log(`reset: ${HOMES.length} homes, 2 teachers, "${v1.title}" v1 active everywhere (James ${JAMES.verified ? 'verified' : 'unverified'})`);
 await client.close();

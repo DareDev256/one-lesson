@@ -44,11 +44,9 @@ export function Face({ x, y, mood, shield, label, sub, bubble, selected, onClick
       <text y={s / 2 + 24} className="face-label">{label}</text>
       <text y={s / 2 + 42} className="face-sub">{sub}</text>
       {bubble && (
-        <g transform={`translate(0, ${-s / 2 - 40})`}>
-          <foreignObject x={-150} y={-74} width={300} height={70}>
-            <div className="bubble">{bubble}</div>
-          </foreignObject>
-        </g>
+        <foreignObject x={-130} y={-s / 2 - 76} width={260} height={44}>
+          <div className="bubble-wrap"><div className="bubble">{bubble}</div></div>
+        </foreignObject>
       )}
     </g>
   );

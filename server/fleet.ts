@@ -12,11 +12,21 @@ const listeners = new Set<Listener>();
 export function onBroadcast(fn: Listener) { listeners.add(fn); return () => listeners.delete(fn); }
 function broadcast(msg: unknown) { for (const fn of listeners) fn(msg); }
 
+let sbTimer: ReturnType<typeof setTimeout> | null = null;
+function scheduleScoreboard() {
+  if (sbTimer) return;
+  sbTimer = setTimeout(async () => {
+    sbTimer = null;
+    try { broadcast({ kind: 'scoreboard', scoreboard: await scoreboard() }); } catch (err) { console.error('scoreboard', err); }
+  }, 150);
+}
+
 export async function emit(e: Omit<FleetEvent, 'at'> & { at?: Date }) {
   const { events } = await collections();
   const doc = { ...e, at: e.at ?? new Date() } as FleetEvent;
   await events.insertOne(doc);
   broadcast({ kind: 'event', event: doc });
+  if (doc.type !== 'asked') scheduleScoreboard();
   return doc;
 }
 
@@ -121,14 +131,14 @@ async function handleChange(homeId: string, change: ChangeStreamDocument<Lesson>
     const rule = blockingRule(lesson.tags, home.blockedTags);
     if (catchingUp) await emit({ type: 'caught_up', homeId, lessonId: lesson._id });
     if (rule) {
-      await emit({ type: 'refused', homeId, lessonId: lesson._id, teacherId: lesson.teacherId, rule, detail: { title: lesson.title, version: lesson.version, teacherName: lesson.teacherName } });
+      await emit({ type: 'refused', homeId, lessonId: lesson._id, teacherId: lesson.teacherId, rule, detail: { title: lesson.title, version: lesson.version, teacherName: lesson.teacherName, tags: lesson.tags } });
       return;
     }
     const currentId = home.activeLessons?.[lesson.skillKey];
     const current = currentId ? await (await collections()).lessons.findOne({ _id: currentId }) : null;
     if (current && current.version > lesson.version && GOOD_STATUSES.includes(current.status)) return;
     await homes.updateOne({ _id: homeId }, { $set: { [`activeLessons.${lesson.skillKey}`]: lesson._id } });
-    await emit({ type: 'delivered', homeId, lessonId: lesson._id, teacherId: lesson.teacherId, detail: { title: lesson.title, version: lesson.version, teacherName: lesson.teacherName, verified: lesson.teacherVerified } });
+    await emit({ type: 'delivered', homeId, lessonId: lesson._id, teacherId: lesson.teacherId, detail: { title: lesson.title, version: lesson.version, teacherName: lesson.teacherName, verified: lesson.teacherVerified, tags: lesson.tags } });
     await pushHome(homeId);
     await runLesson({ ...home, activeLessons: { ...home.activeLessons, [lesson.skillKey]: lesson._id } }, lesson, 'ripple');
     return;

@@ -69,6 +69,11 @@ app.get('/api/state', wrap(async () => {
 
 app.get('/api/scoreboard', wrap(() => scoreboard()));
 
+app.get('/api/lessons', wrap(async () => {
+  const { lessons } = await collections();
+  return lessons.find({}, { projection: { embedding: 0 } }).sort({ createdAt: 1 }).toArray();
+}));
+
 app.post('/api/publish', wrap(async (req) => {
   const teacher = await teacherFrom(req);
   if (!teacher) throw Object.assign(new Error('sign in or give a teacher name'), { status: 401 });

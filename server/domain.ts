@@ -107,12 +107,12 @@ export interface HomeSeed {
 }
 
 export const HOMES: HomeSeed[] = [
-  { _id: 'home-1', name: 'Home 1', hood: 'Downtown', hasKids: false, blockedTags: [], mapX: 0.52, mapY: 0.72 },
-  { _id: 'home-2', name: 'Home 2', hood: 'Etobicoke', hasKids: false, blockedTags: [], mapX: 0.16, mapY: 0.6 },
-  { _id: 'home-3', name: 'Home 3', hood: 'North York', hasKids: false, blockedTags: [], mapX: 0.46, mapY: 0.22 },
-  { _id: 'home-4', name: 'Home 4', hood: 'Scarborough', hasKids: false, blockedTags: [], mapX: 0.84, mapY: 0.3 },
-  { _id: 'home-5', name: 'Home 5', hood: 'East York', hasKids: true, blockedTags: ['sharp+child-reach', 'chemical'], mapX: 0.62, mapY: 0.42 },
-  { _id: 'home-6', name: 'Home 6', hood: 'Leslieville', hasKids: true, blockedTags: ['sharp+child-reach', 'chemical'], mapX: 0.7, mapY: 0.66 },
+  { _id: 'home-1', name: 'Home 1', hood: 'Downtown', hasKids: false, blockedTags: [], mapX: 0.45, mapY: 0.74 },
+  { _id: 'home-2', name: 'Home 2', hood: 'Etobicoke', hasKids: false, blockedTags: [], mapX: 0.13, mapY: 0.56 },
+  { _id: 'home-3', name: 'Home 3', hood: 'North York', hasKids: false, blockedTags: [], mapX: 0.4, mapY: 0.3 },
+  { _id: 'home-4', name: 'Home 4', hood: 'Scarborough', hasKids: false, blockedTags: [], mapX: 0.87, mapY: 0.3 },
+  { _id: 'home-5', name: 'Home 5', hood: 'East York', hasKids: true, blockedTags: ['sharp+child-reach', 'chemical'], mapX: 0.66, mapY: 0.44 },
+  { _id: 'home-6', name: 'Home 6', hood: 'Leslieville', hasKids: true, blockedTags: ['sharp+child-reach', 'chemical'], mapX: 0.8, mapY: 0.7 },
 ];
 
 // Small seeded PRNG so every home gets its own kitchen, the same one every reset.

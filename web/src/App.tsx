@@ -10,6 +10,7 @@ const TRAVEL_MS = 450;
 const ORIGIN: Record<string, string> = { James: 'home-1', Alex: 'home-3' };
 
 type Pulse = { id: number; from: { x: number; y: number }; to: { x: number; y: number }; bad: boolean };
+const HAZARD = 'sharp+child-reach';
 type AskResult = { homeId: string; answer: 'ran' | 'unknown'; say: string; lesson?: { title: string; version: number; teacherName: string; tags: string[] }; run?: { ms: number; path: any[] }; matches: any[] };
 
 const PRESETS: Record<string, { teacher: string; title: string; steps: Step[]; parent?: string }> = {
@@ -74,22 +75,27 @@ export default function App() {
     }
     if (e.type === 'delivered' || e.type === 'refused') {
       const origin = originRef.current[e.lessonId!] ?? 'home-1';
-      const bad = e.type === 'refused';
+      const refused = e.type === 'refused';
+      const hazardous = (d.tags ?? []).includes(HAZARD);
       if (e.homeId !== origin) {
         const id = ++pid.current;
-        setPulses((p) => [...p, { id, from: pos(origin), to: pos(e.homeId!), bad }]);
-        setTimeout(() => setPulses((p) => p.filter((x) => x.id !== id)), TRAVEL_MS + 60);
+        const from = pos(origin), to = pos(e.homeId!);
+        // A refused lesson stops at the shield ring instead of reaching the face.
+        const stop = refused ? (() => { const dx = to.x - from.x, dy = to.y - from.y, L = Math.hypot(dx, dy) || 1; return { x: to.x - (dx / L) * 62, y: to.y - (dy / L) * 62 }; })() : to;
+        setPulses((p) => [...p, { id, from, to: stop, bad: refused || hazardous }]);
+        setTimeout(() => setPulses((p) => p.filter((x) => x.id !== id)), TRAVEL_MS + 80);
       }
       setTimeout(() => {
-        if (bad) { flash(e.homeId!, 'refused', 1800); say(e.homeId!, `Blocked by rule: ${e.rule}`, 4000); thud(); }
-        else { flash(e.homeId!, 'happy', 2200); say(e.homeId!, `Learned "${d.title}" v${d.version} from ${d.teacherName}`, 3000); hit(1 + Math.random() * 0.2); }
+        if (refused) { flash(e.homeId!, 'refused', 2000); say(e.homeId!, `Blocked: ${e.rule}`, 3500); thud(); }
+        else if (hazardous) { flash(e.homeId!, 'bad', 2000); say(e.homeId!, `Took v${d.version} from ${d.teacherName}`, 3000); hit(0.6); }
+        else { flash(e.homeId!, 'happy', 2200); say(e.homeId!, `Learned "${d.title}"`, 3000); hit(1 + Math.random() * 0.2); }
       }, e.homeId === origin ? 0 : TRAVEL_MS);
     }
     if (e.type === 'ran') setLastRun((r) => ({ ...r, [e.homeId!]: { path: d.path, key: `${e.at}` } }));
     if (e.type === 'rolled_back') { setCaption(`${d.by} rolled back ${e.lessonId} and everything built on it.`); swoosh(); }
-    if (e.type === 'reverted') { flash(e.homeId!, 'ring', 1500); say(e.homeId!, d.to ? `Back to "${d.toTitle}" v${d.toVersion}` : 'Forgot it', 3000); }
+    if (e.type === 'reverted') { flash(e.homeId!, 'ring', 1500); say(e.homeId!, d.to ? `Back to v${d.toVersion}` : 'Forgot it', 3000); }
     if (e.type === 'forgotten') setCaption(`A teacher asked to be forgotten. ${d.ids?.length ?? 0} lessons leave the fleet.`);
-    if (e.type === 'caught_up') say(e.homeId!, 'Caught up on a missed lesson', 3000);
+    if (e.type === 'caught_up') say(e.homeId!, 'Caught up', 3000);
   }, []);
 
   const fleet = useFleet(onEvent);
@@ -118,10 +124,11 @@ export default function App() {
       const r = await api<AskResult>('/api/ask', { homeId, text });
       setAskOut(r);
       const h = fleet.homes.find((x) => x._id === homeId);
-      const knife = where(r.lesson ? lessonById[`${r.lesson.title}`]?.steps : undefined);
-      say(homeId, r.answer === 'ran' ? `${r.say}` : r.say, 6000);
-      setCaption(`Ask ${h?.name}: "${text}" → ${r.answer === 'ran' ? r.say : r.say}${knife ? ` (${knife})` : ''}`);
-      if (r.answer === 'ran') flash(homeId, 'happy', 1500);
+      const kn = r.run?.path ? (() => { const p = r.run!.path; for (let i = 0; i < p.length - 1; i++) if (p[i].objectType === 'knife') return p[i + 1].targetType === 'low_drawer' || p[i + 1].targetType === 'floor_bin' ? 'knife LOW' : 'knife HIGH'; return ''; })() : '';
+      say(homeId, r.answer === 'ran' ? `${r.lesson!.title} v${r.lesson!.version}${kn ? ` · ${kn}` : ''}` : r.say.startsWith("I don't") ? "I don't know how yet" : 'Blocked here', 6000);
+      setCaption(`Ask ${h?.name}: "${text}" → ${r.say}${kn ? ` ${kn.replace('knife ', 'Knife goes ')}.` : ''}`);
+      if (r.answer === 'ran') flash(homeId, kn === 'knife LOW' ? 'bad' : 'happy', 1800);
+      setLastRun((x) => (r.run ? { ...x, [homeId]: { path: r.run.path, key: `${Date.now()}` } } : x));
     } catch (e: any) { setError(e.message); }
     setAsking(false);
   };
@@ -153,6 +160,13 @@ export default function App() {
     try { setTree(await api(`/api/lineage/${encodeURIComponent(id)}`)); } catch (e: any) { setError(e.message); }
   }, []);
   useEffect(() => { if (panel === 'lineage') loadTree(lineageOf); }, [panel, lineageOf, fleet.lessons, loadTree]);
+  // Reverts land after the rollback event; reload the tree once they have.
+  const lastEvent = fleet.events[fleet.events.length - 1];
+  useEffect(() => {
+    if (panel !== 'lineage' || !lastEvent || !['reverted', 'delivered', 'refused', 'ran'].includes(lastEvent.type)) return;
+    const t = setTimeout(() => loadTree(lineageOf), 250);
+    return () => clearTimeout(t);
+  }, [lastEvent, panel, lineageOf, loadTree]);
 
   // Presenter keys: T teach, L lineage, A ask, Esc close, Shift+1..3 scripted lessons for rehearsal and the backup video.
   useEffect(() => {
@@ -247,7 +261,7 @@ export default function App() {
         <input value={askText} onChange={(e) => setAskText(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && doAsk()} />
         <button className="primary" disabled={asking} onClick={() => doAsk()}>{asking ? 'asking…' : 'Ask'}</button>
         <div className="answer">
-          {askOut && <><b>{fleet.homes.find((h) => h._id === askOut.homeId)?.name}:</b> {askOut.say} {askOut.lesson && <em>{where(lessonById[`${askOut.lesson ? fleet.lessons.find((l) => l.title === askOut.lesson!.title && l.version === askOut.lesson!.version)?._id : ''}`]?.steps)}</em>}</>}
+          {askOut && <><b>{fleet.homes.find((h) => h._id === askOut.homeId)?.name}:</b> {askOut.say} {askOut.run && <em>{where(askOut.run.path.map((p: any) => (p.action === 'pick' ? { action: 'pick', objectType: p.objectType } : { action: 'place', targetType: p.targetType })))}</em>} {askOut.matches?.[0] && <span className="score">top match {askOut.matches[0].score}{askOut.matches[0].blockedBy ? ` (blocked: ${askOut.matches[0].blockedBy})` : ''}</span>}</>}
           {error && <span className="err">{error}</span>}
         </div>
         <button className="ghost" onClick={() => setPanel(panel === 'teach' ? null : 'teach')}>Teach (T)</button>
@@ -263,7 +277,7 @@ export default function App() {
             <span className="unverified">typed name: unverified</span>
             <button className="ghost" onClick={() => setPanel(null)}>close</button>
           </div>
-          {fleet.homes.find((h) => h._id === teachHome) && <Kitchen home={fleet.homes.find((h) => h._id === teachHome)!} cell={46} onPick={onPick} />}
+          {fleet.homes.find((h) => h._id === teachHome) && <Kitchen home={fleet.homes.find((h) => h._id === teachHome)!} cell={42} onPick={onPick} />}
           <div className="steps">{draft.length ? draft.map((s, i) => <span key={i} className="step">{s.action === 'pick' ? `pick ${s.objectType}` : `→ ${label(s.targetType)}`}</span>) : <span className="hint">Click an object, then where it goes.</span>}</div>
           <div className="drawer-row">
             <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="name the skill" />
@@ -290,7 +304,7 @@ export default function App() {
               <div key={n._id} className={`node st-${n.status}`} style={{ marginLeft: (n.depth == null ? 0 : n.depth + 1) * 36 }}>
                 <div className="node-title">{n.title} <b>v{n.version}</b> <span className={`pill ${n.status}`}>{n.status.replace('_', ' ')}</span></div>
                 <div className="node-meta">taught by {n.teacherName} {n.teacherVerified ? <span className="ver">verified</span> : <span className="unverified">unverified</span>} · tags {n.tags.join(', ') || 'none'}</div>
-                <div className="node-meta">ran in {(n.homes?.ran ?? []).map((h: string) => h.replace('home-', 'H')).join(' ') || '—'} · refused by {(n.homes?.refused ?? []).map((h: string) => h.replace('home-', 'H')).join(' ') || '—'}</div>
+                <div className="node-meta">reached {[...new Set([...(n.homes?.delivered ?? []), ...(n.homes?.ran ?? [])])].sort().map((h: string) => h.replace('home-', 'H')).join(' ') || '—'} · refused by {(n.homes?.refused ?? []).map((h: string) => h.replace('home-', 'H')).join(' ') || '—'}{n.homes?.reverted?.length ? ` · reverted in ${n.homes.reverted.map((h: string) => h.replace('home-', 'H')).join(' ')}` : ''}</div>
                 {(n.status === 'trial' || n.status === 'proven') && <button className="danger" onClick={() => rollback(n._id)}>Roll back (James only)</button>}
               </div>
             ))}

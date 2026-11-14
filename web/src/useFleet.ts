@@ -14,9 +14,15 @@ export function useFleet(onEvent: (e: FleetEvent) => void) {
   const onEventRef = useRef(onEvent);
   onEventRef.current = onEvent;
 
+  // Full state only on (re)connect. Live updates come as pushed events and home documents;
+  // event-driven refreshes reload lessons only, so a slow response can't overwrite newer home state.
   const refresh = useCallback(async () => {
     const s = await api<Omit<FleetState, 'connected'>>('/api/state');
     setState((p) => ({ ...p, ...s }));
+  }, []);
+  const refreshLessons = useCallback(async () => {
+    const lessons = await api<Lesson[]>('/api/lessons');
+    setState((p) => ({ ...p, lessons }));
   }, []);
 
   useEffect(() => {
@@ -40,7 +46,7 @@ export function useFleet(onEvent: (e: FleetEvent) => void) {
           setState((p) => ({ ...p, events: [...p.events.slice(-120), msg.event] }));
           onEventRef.current(msg.event);
           if (['published', 'rolled_back', 'forgotten'].includes(msg.event.type) || (msg.event.type === 'ran' && msg.event.detail?.cause === 'ask')) {
-            refresh().catch(() => {});
+            refreshLessons().catch(() => {});
           }
         } else if (msg.kind === 'home') {
           setState((p) => ({ ...p, homes: p.homes.map((h) => (h._id === msg.home._id ? msg.home : h)) }));
@@ -51,7 +57,7 @@ export function useFleet(onEvent: (e: FleetEvent) => void) {
     };
     connect();
     return () => { stop = true; clearTimeout(retry); ws?.close(); };
-  }, [refresh]);
+  }, [refresh, refreshLessons]);
 
-  return { ...state, refresh };
+  return { ...state, refresh, refreshLessons };
 }

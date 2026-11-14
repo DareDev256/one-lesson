@@ -1,4 +1,5 @@
 // Runs the demo's beats against a running server (after `npm run demo:reset` + `npm start`)
+export {};
 // and fails loudly if any of them stop being true. Usage: npm run smoke
 const B = process.env.BASE ?? 'http://localhost:8787';
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
