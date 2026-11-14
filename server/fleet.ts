@@ -399,6 +399,21 @@ export async function scoreboard() {
   const refusedElsewhere = refusals.reduce((s, r) => s + r.n, 0) - refusedInKidHomes;
 
   const homesKnowing = allHomes.filter((h) => Object.keys(h.activeLessons ?? {}).length > 0).length;
+
+  // Memory in sync: each home should hold, per skill, the newest good version its rules allow.
+  // A home that missed a change (offline, or the server was down) shows here until it catches up.
+  const good = await lessons.find({ status: { $in: GOOD_STATUSES } }, { projection: { _id: 1, skillKey: 1, version: 1, tags: 1 } }).sort({ version: -1 }).toArray();
+  let outOfSync = 0;
+  const homesInSync = allHomes.filter((h) => {
+    const expected: Record<string, string> = {};
+    for (const l of good) if (!expected[l.skillKey] && !blockingRule(l.tags, h.blockedTags)) expected[l.skillKey] = l._id;
+    const actual = h.activeLessons ?? {};
+    const keys = new Set([...Object.keys(expected), ...Object.keys(actual)]);
+    let bad = 0;
+    for (const k of keys) if (expected[k] !== actual[k]) bad++;
+    outOfSync += bad;
+    return bad === 0;
+  }).length;
   const caughtUp = await events.countDocuments({ type: 'caught_up' });
   const runsOk = await runs.countDocuments({ outcome: 'ok' });
   const runsFailed = await runs.countDocuments({ outcome: { $ne: 'ok' } });
@@ -410,6 +425,7 @@ export async function scoreboard() {
     ripple, lastRollback,
     refusals: { kidHomes: refusedInKidHomes, otherHomes: refusedElsewhere },
     homesOnline: allHomes.filter((h) => h.online).length, homesTotal: allHomes.length, homesKnowing,
+    memory: { homesInSync, outOfSync },
     caughtUp, runs: { ok: runsOk, failed: runsFailed },
     lessons: Object.fromEntries(lessonCounts.map((c) => [c._id, c.n])),
   };

@@ -87,7 +87,7 @@ input, select { font: 500 16px var(--mono); background: #0b0b0b; color: var(--in
 .answer em { font-style: normal; color: var(--accent); font-weight: 700; margin-left: 6px; }
 .err { color: var(--red); margin-left: 10px; }
 
-.drawer { position: fixed; right: 12px; top: 352px; bottom: 88px; width: 540px; max-width: calc(100vw - 24px); overflow: auto; background: #070707; border: 1px solid #2a2a2a; border-radius: 12px; padding: 16px; display: flex; flex-direction: column; gap: 12px; box-shadow: 0 20px 60px rgba(0,0,0,0.8); z-index: 5; }
+.drawer { position: fixed; right: 12px; top: 400px; bottom: 88px; width: 540px; max-width: calc(100vw - 24px); overflow: auto; background: #070707; border: 1px solid #2a2a2a; border-radius: 12px; padding: 16px; display: flex; flex-direction: column; gap: 12px; box-shadow: 0 20px 60px rgba(0,0,0,0.8); z-index: 5; }
 .drawer.lineage { width: 540px; }
 .drawer-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font: 600 15px var(--sans); }
 .drawer-head .ghost:last-child { margin-left: auto; }
@@ -118,3 +118,20 @@ input, select { font: 500 16px var(--mono); background: #0b0b0b; color: var(--in
 .mic-hearing { color: var(--accent); border-color: var(--accent); }
 .mic-error { color: var(--red); }
 .heard { font: 500 14px var(--mono); color: #cfcfcf; align-self: center; }
+
+/* phone teach page */
+.teach-page { min-height: 100vh; padding: 20px 16px 40px; display: flex; flex-direction: column; gap: 14px; max-width: 480px; margin: 0 auto; }
+.teach-page header .wordmark { font-size: 40px; }
+.teach-page header .sub { font: 500 15px var(--sans); color: var(--dim); }
+.teach-page .who { font: 500 16px var(--sans); display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.teach-page .who input { flex: 1; }
+.teach-page button.big { font-size: 17px; padding: 15px; width: 100%; }
+.teach-page .talk { font: 700 19px var(--sans); padding: 26px 16px; border: 2px solid var(--accent); color: var(--accent); background: #120700; border-radius: 14px; user-select: none; touch-action: none; -webkit-user-select: none; }
+.teach-page .talk.on { background: var(--red); border-color: var(--red); color: #000; }
+.teach-page .heard { font: 500 15px var(--mono); }
+.teach-page .title { width: 100%; }
+.teach-page .status { font: 600 15px var(--mono); color: var(--accent); border: 1px solid #3a2010; border-radius: 8px; padding: 12px; }
+.sync { font: 700 14px var(--mono); padding: 9px 14px; border-radius: 8px; display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.sync span { font-weight: 500; font-size: 11px; opacity: 0.8; align-self: center; }
+.sync.ok { color: var(--green); border: 1px solid #1d4d33; }
+.sync.warn { color: #000; background: #ffb020; }

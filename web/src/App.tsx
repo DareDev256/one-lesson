@@ -257,6 +257,10 @@ export default function App() {
             {sb ? `${sb.invariant.kidsHomeViolations} blocked lessons active in kids' homes` : 'measuring…'}
             <span>queried live every second</span>
           </div>
+          <div className={`sync ${sb && sb.memory.outOfSync === 0 ? 'ok' : 'warn'}`}>
+            {sb ? `memory in sync: ${sb.memory.homesInSync}/${sb.homesTotal} homes · ${sb.memory.outOfSync} lessons missing` : ''}
+            <span>{sb ? `caught up from resume tokens: ${sb.caughtUp}` : ''}</span>
+          </div>
           <div className="feed-title">LIVE EVENTS</div>
           <ol className="feed">
             {recent.map((e, i) => <li key={i} className={`ev ev-${e.type}`}><EventLine e={e} homes={fleet.homes} /></li>)}

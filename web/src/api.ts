@@ -19,6 +19,7 @@ export interface Scoreboard {
   lastRollback: { homes: number; ms: number | null } | null;
   refusals: { kidHomes: number; otherHomes: number };
   homesOnline: number; homesTotal: number; homesKnowing: number; caughtUp: number;
+  memory: { homesInSync: number; outOfSync: number };
   runs: { ok: number; failed: number }; lessons: Record<string, number>;
 }
 
