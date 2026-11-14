@@ -66,7 +66,7 @@ Presenter keys: **V** hold to talk · **T** teach · **L** lineage · **Shift+1/
 
 Each figure was measured on 14 November 2026 against the sandbox cluster, from Toronto to us-west-1.
 
-- Publish to the last home hearing it: 253 to 863 ms across six homes over today's runs, computed from `events` timestamps.
+- Publish to the last home hearing it: 179 to 863 ms across six homes over today's runs (saved evidence: 179 and 382 ms), computed from `events` timestamps.
 - Rollback across four homes: 602 to 2,281 ms over today's runs (Toronto to us-west-1; each home does several round trips).
 - Ask, "put the dishes away" on Home 2: best rerank score 0.435 before the dishwasher lesson exists, 0.639 after. The match floor is 0.60.
 - Pull the plug: 6 of 6 homes caught up from resume tokens, 0 lessons missing.
