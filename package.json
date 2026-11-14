@@ -19,7 +19,7 @@
     "smoke": "tsx scripts/smoke.ts",
     "voice:warm": "tsx scripts/voice-warm.ts",
     "publish:direct": "tsx scripts/publish-direct.ts",
-    "demo": "tsx scripts/demo-reset.ts && tsx server/index.ts"
+    "demo": "tsx scripts/demo-reset.ts && tsx scripts/voice-warm.ts && tsx server/index.ts"
   },
   "dependencies": {
     "@auth0/auth0-spa-js": "^2.30.0",
