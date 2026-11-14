@@ -70,8 +70,9 @@ let agentEnd = null;
 const K = process.env.ELEVENLABS_API_KEY, A = process.env.ELEVENLABS_AGENT_ID;
 if (K && A) {
   try {
-    const j = await (await fetch(`https://api.elevenlabs.io/v1/convai/conversations?page_size=3&agent_id=${A}`, { headers: { 'xi-api-key': K }, signal: AbortSignal.timeout(8000) })).json();
-    const c = (j.conversations ?? []).find((c) => c.start_time_unix_secs * 1000 > T0);
+    const j = await (await fetch(`https://api.elevenlabs.io/v1/convai/conversations?page_size=10&agent_id=${A}`, { headers: { 'xi-api-key': K }, signal: AbortSignal.timeout(8000) })).json();
+    // the run's own agent call: the FIRST conversation after the run started (a later one may be a test or the next run)
+    const c = (j.conversations ?? []).filter((c) => c.start_time_unix_secs * 1000 > T0).sort((x, y) => x.start_time_unix_secs - y.start_time_unix_secs)[0];
     if (c) {
       const d = await (await fetch(`https://api.elevenlabs.io/v1/convai/conversations/${c.conversation_id}`, { headers: { 'xi-api-key': K }, signal: AbortSignal.timeout(8000) })).json();
       const tools = (d.transcript ?? []).flatMap((m) => (m.tool_calls ?? []).map((t) => t.tool_name));
