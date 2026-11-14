@@ -181,6 +181,15 @@ export async function startWorker(homeId: string) {
   await pushHome(homeId);
   (async () => {
     try {
+      // A home with no saved bookmark takes one the moment it starts watching, so a crash before its first
+      // event still resumes from here (without this, a lesson written while down would be missed).
+      if (!home.resumeToken) {
+        const first = await stream.tryNext();
+        if (first) {
+          try { await handleChange(homeId, first, startedAt); } catch (err) { console.error(`[${homeId}]`, err); }
+        }
+        if (stream.resumeToken) await homes.updateOne({ _id: homeId }, { $set: { resumeToken: stream.resumeToken } });
+      }
       for await (const change of stream) {
         try {
           await handleChange(homeId, change, startedAt);
