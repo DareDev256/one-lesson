@@ -21,7 +21,6 @@
     "publish:direct": "tsx scripts/publish-direct.ts"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^1.8.0",
     "@auth0/auth0-spa-js": "^2.30.0",
     "@huggingface/transformers": "^4.3.2",
     "dotenv": "^18.0.10",
