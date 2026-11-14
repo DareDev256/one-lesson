@@ -16,6 +16,8 @@ for (const h of ['home-5', 'home-6']) {
   lines.push([h, "I won't do that here. There are kids in this house."]);
 }
 const ml: [string, string, string][] = [
+  ['home-6', LINES.fr.refused, 'fr'],
+  ['home-4', LINES.es.reverted(1), 'es'],
   ['home-5', LINES.fr.ran('kitchen tidy', 1, 'James', 'high'), 'fr'],
   ['home-2', LINES.zh.ran('kitchen tidy', 2, 'Alex', 'low'), 'zh'],
   ['home-2', LINES.zh.ran('kitchen tidy', 1, 'James', 'high'), 'zh'],

@@ -6,6 +6,7 @@ import { hit, setSound, swoosh, thud } from './sound';
 import { useFleet } from './useFleet';
 import { LINES, setSpeakingListener, setVoice, speak, type Lang, type Provenance } from './voice';
 import { Mic } from './Mic';
+import { AgentPanel } from './Agent';
 
 const MAP_W = 1280, MAP_H = 820;
 const TRAVEL_MS = 450;
@@ -55,6 +56,8 @@ export default function App() {
   const [lastRun, setLastRun] = useState<Record<string, { path: any[]; key: string }>>({});
   const [error, setError] = useState<string | null>(null);
   const [heard, setHeard] = useState<string | null>(null);
+  const [agentOpen, setAgentOpen] = useState(false);
+  const [agentSpeaking, setAgentSpeaking] = useState(false);
   const [split, setSplit] = useState<{ text: string; runs: Record<string, AskResult | null>; key?: string } | null>(null);
   const [sound, setSoundOn] = useState(true);
   const pid = useRef(0);
@@ -68,7 +71,8 @@ export default function App() {
   useEffect(() => setSpeakingListener(setSpeakingHome), []);
 
   useEffect(() => { setIdentity({ name: teacher }); }, [teacher]);
-  useEffect(() => { setSound(sound); setVoice(sound); }, [sound]);
+  // While the live agent talks, scripted robot voices stay quiet so they never talk over it.
+  useEffect(() => { setSound(sound); setVoice(sound && !agentOpen); }, [sound, agentOpen]);
 
   const pos = (homeId: string) => {
     const h = homesRef.current.find((x) => x._id === homeId);
@@ -218,7 +222,8 @@ export default function App() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.target as HTMLElement)?.tagName === 'INPUT' || (e.target as HTMLElement)?.tagName === 'SELECT') return;
-      if (e.key === 'Escape') { setPanel(null); setZoom(null); setSplit(null); }
+      if (e.key === 'Escape') { setPanel(null); setZoom(null); setSplit(null); setAgentOpen(false); }
+      if (e.key === 'c' || (e.shiftKey && e.code === 'Digit8')) { e.preventDefault(); setPanel(null); setAgentOpen((o) => !o); }
       if (e.key === 'k' || (e.shiftKey && e.code === 'Digit7')) { e.preventDefault(); setPanel(null); runSplit(); }
       if (e.key === 't') setPanel((p) => (p === 'teach' ? null : 'teach'));
       if (e.key === 'l') setPanel((p) => (p === 'lineage' ? null : 'lineage'));
@@ -283,7 +288,7 @@ export default function App() {
                 sub={(() => { const n = Object.keys(h.activeLessons ?? {}).length; return `${n} ${n === 1 ? 'skill' : 'skills'}`; })()}
                 bubble={b && b.until > Date.now() ? b.text : null} selected={askHome === h._id}
                 focus={focusHome && focusHome.until > Date.now() ? (focusHome.id === h._id ? 'on' : 'dim') : null}
-                speaking={speakingHome === h._id}
+                speaking={speakingHome === h._id || (agentOpen && agentSpeaking && h._id === 'home-5')}
                 onClick={() => setAskHome(h._id)}
                 onContextMenu={(ev) => { ev.preventDefault(); setZoom(h._id); }} />
             );
@@ -320,7 +325,7 @@ export default function App() {
         </div>
         <input value={askText} onChange={(e) => setAskText(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && doAsk()} />
         <button className="primary" disabled={asking} onClick={() => doAsk()}>{asking ? 'asking…' : 'Ask'}</button>
-        <Mic mode="ask" hotkey={panel !== 'teach'} label="ask (V)" onResult={(r) => { if (r.text) { setChip({ text: `ElevenLabs Scribe heard · ${(r.lang ?? 'en').toUpperCase()} detected`, until: Date.now() + 6000 }); setAskText(r.text); doAsk(askHome, r.text, r.lang); } }} />
+        <Mic mode="ask" hotkey={panel !== 'teach' && !agentOpen} label="ask (V)" onResult={(r) => { if (r.text) { setChip({ text: `ElevenLabs Scribe heard · ${(r.lang ?? 'en').toUpperCase()} detected`, until: Date.now() + 6000 }); setAskText(r.text); doAsk(askHome, r.text, r.lang); } }} />
         {chip && chip.until > Date.now() && <span className="chip">{chip.text}</span>}
         <div className="answer">
           {askOut && <><b>{fleet.homes.find((h) => h._id === askOut.homeId)?.name}{askOut.lang && askOut.lang !== 'en' ? ` [${askOut.lang.toUpperCase()}]` : ''}:</b> {askOut.say} {askOut.run && <em>{where(askOut.run.path.map((p: any) => (p.action === 'pick' ? { action: 'pick', objectType: p.objectType } : { action: 'place', targetType: p.targetType })))}</em>} {askOut.matches?.[0] && <span className="score">top match {askOut.matches[0].score}{askOut.matches[0].blockedBy ? ` (blocked: ${askOut.matches[0].blockedBy})` : ''}</span>}</>}
@@ -382,6 +387,10 @@ export default function App() {
           </div>
         </div>
       )}
+
+      <AgentPanel open={agentOpen} onClose={() => setAgentOpen(false)}
+        onSpeaking={(on) => { setAgentSpeaking(on); if (on) setFocusHome({ id: 'home-5', until: Date.now() + 4000 }); }}
+        onToolResult={(t) => { say('home-5', t.length > 44 ? 'Refused: kids\' rule' : t, 5000); flash('home-5', 'refused', 1800); }} />
 
       {split && (
         <div className="modal split" onClick={() => setSplit(null)}>

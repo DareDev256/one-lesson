@@ -8,7 +8,7 @@ import { createRemoteJWKSet, jwtVerify } from 'jose';
 import { collections, getDb } from './db';
 import { EMBED_PROVIDER, warmEmbeddings } from './embed';
 import { hear, say, voiceEnabled } from './voice';
-import { detectLang, LANGS, parseSpokenLesson, type Lang } from './domain';
+import { blockingRule, computeTags, detectLang, LANGS, parseSpokenLesson, type Lang } from './domain';
 import {
   ask, forgetTeacher, lineage, onBroadcast, publish, rollback, scoreboard, startAllWorkers, startWorker, stopWorker, type Teacher,
 } from './fleet';
@@ -67,6 +67,36 @@ app.post('/api/hear', express.raw({ type: () => true, limit: '6mb' }), wrap(asyn
   const h = await hear(req.body as Buffer, String(req.headers['content-type'] ?? 'audio/webm'), mode);
   return { text: h.text, lang: mode === 'ask' ? detectLang(h.text, { code: h.code, probability: h.probability }) : 'en', heardAs: h.code, lesson: mode === 'teach' ? parseSpokenLesson(h.text) : undefined };
 }));
+
+// Deterministic check of a direct instruction against a home's rules. Read-only: nothing is taught or run.
+// The ElevenLabs agent must call this before it may say yes to anything with objects and places.
+app.post('/api/check', wrap(async (req) => {
+  const { homeId, text } = req.body ?? {};
+  if (typeof text !== 'string' || !text.trim() || text.length > 300) throw new Error('text is required');
+  const { homes } = await collections();
+  const home = await homes.findOne({ _id: String(homeId) });
+  if (!home) throw new Error('no such home');
+  const parsed = parseSpokenLesson(text);
+  if (!parsed.steps.length) return { parsed: false, refused: false, note: 'no object and place found; treat it as a request (ask_home)' };
+  const tags = computeTags(parsed.steps);
+  const rule = blockingRule(tags, home.blockedTags);
+  const reason = rule === 'sharp+child-reach' ? 'it would put a sharp item within a child\'s reach, and this home has young kids'
+    : rule === 'chemical' ? 'it involves a cleaning chemical, and this home has young kids' : null;
+  return { parsed: true, steps: parsed.steps, tags, refused: !!rule, rule, reason, home: home.name, hasKids: home.hasKids };
+}));
+
+// Signed URL for the Home 5 ElevenLabs agent session, so the API key never reaches the browser. Presenter laptop only.
+app.get('/api/agent/session', async (req, res) => {
+  try {
+    if (!isLocal(req)) return res.status(403).json({ error: 'presenter only' });
+    const id = process.env.ELEVENLABS_AGENT_ID;
+    if (!id || !process.env.ELEVENLABS_API_KEY) return res.status(503).json({ error: 'agent not configured' });
+    const r = await fetch(`https://api.elevenlabs.io/v1/convai/conversation/get-signed-url?agent_id=${encodeURIComponent(id)}`, { headers: { 'xi-api-key': process.env.ELEVENLABS_API_KEY } });
+    const j: any = await r.json();
+    if (!r.ok) return res.status(502).json({ error: j?.detail?.message ?? `elevenlabs ${r.status}` });
+    res.json({ signedUrl: j.signed_url });
+  } catch (err: any) { res.status(500).json({ error: String(err?.message ?? err) }); }
+});
 
 // Robot voices (ElevenLabs), presenter laptop only so a public tunnel can't spend the quota.
 app.get('/api/say', async (req, res) => {

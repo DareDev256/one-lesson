@@ -166,3 +166,18 @@ input, select { font: 500 16px var(--mono); background: #0b0b0b; color: var(--in
 .k-hit { animation: khit .5s ease-out; }
 @keyframes khit { from { stroke-width: 8; } to { stroke-width: 2.5; } }
 .k-target { font-size: 9.5px; font-weight: 700; }
+/* live ElevenLabs agent */
+.agent { position: fixed; left: 20px; bottom: 92px; width: min(620px, calc(100vw - 40px)); background: #070707; border: 2px solid var(--accent); border-radius: 14px; padding: 14px 16px; display: grid; gap: 10px; z-index: 6; box-shadow: 0 20px 60px rgba(0,0,0,.8); }
+.agent-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.agent-head b { font: 800 22px var(--display); font-stretch: 72%; }
+.agent-sub { font: 500 12px var(--mono); color: var(--dim); flex: 1; min-width: 200px; }
+.dot { width: 12px; height: 12px; border-radius: 50%; background: #555; }
+.dot.listening { background: var(--green); animation: blink 1.2s steps(2) infinite; }
+.dot.speaking { background: var(--accent); }
+.dot.error { background: var(--red); }
+.agent-lines { display: grid; gap: 6px; max-height: 260px; overflow: auto; }
+.agent-line { font: 600 17px/1.35 var(--sans); }
+.agent-line.you { color: var(--dim); }
+.agent-line.home { color: var(--ink); }
+.agent-line.tool { font: 600 13px var(--mono); color: var(--accent); }
+.agent-line.err { font: 600 13px var(--mono); color: var(--red); }
