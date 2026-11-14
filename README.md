@@ -13,7 +13,7 @@ Track: **Memory You Can Govern**. Built at *Agents in Context Toronto* (MongoDB 
 1. **Before.** Ask Home 2 "put the dishes away". It answers out loud: "I don't know how to do that yet."
 2. **Teach.** James teaches "load the dishwasher" in Home 1. All six homes learn it, each in its own kitchen. Ask Home 2 again and it does it.
 3. **The bad lesson.** Alex teaches "kitchen tidy" v2, which puts the knife in the low drawer. Homes 1 to 4 take it. Homes 5 and 6 have kids, and their rules refuse it at the shield. Ask "tidy the kitchen": Home 2 puts the knife LOW, Home 5 puts it HIGH. Same words, different homes, different answers.
-4. **Trace and undo.** The lineage shows v1 (James) → v2 (Alex) → "evening reset" (built on v2), and which homes ran or refused each one. Only James can roll back; Alex gets a 403. One click and every home is back on v1. Ask Home 2 again: the knife goes high.
+4. **Trace and undo.** The lineage shows v1 (James) → v2 (Alex) → "evening reset" (built on v2), and which homes ran or refused each one. The server allows rollback only for James; Alex gets a 403. One click and every home that took v2 is back on v1. Ask Home 2 again: the knife goes high.
 5. **Pull the plug.** Kill the server. Another server writes a lesson while ours is down. Restart. Every home resumes its change stream from its saved resume token and catches up. The board reads "memory in sync 6/6, 0 lessons missing".
 6. **Forget me.** A teacher asks to be forgotten. Everything they taught leaves every home, with a receipt.
 
@@ -24,13 +24,13 @@ Track: **Memory You Can Govern**. Built at *Agents in Context Toronto* (MongoDB 
 | **Change streams + resume tokens** | Each of the six homes is a worker with its own change stream on `lessons`, filtered by a `$match` to inserts and status changes. It saves its resume token after every event, so a restart or an offline home misses nothing. | `server/fleet.ts` `startWorker` |
 | **Automated Embedding (Voyage voyage-4)** | Atlas builds the vectors from each lesson's text. We never call an embedding model ourselves. | `scripts/setup.ts` (`autoEmbed` index) |
 | **Vector Search with pre-filters** | Ask finds the closest lesson by meaning, pre-filtered on status. The home's own rules then drop what it may not use. | `server/fleet.ts` `ask` |
-| **Native reranking (`$rerank`, Voyage rerank-3)** | Reorders the vector candidates. Measured on our lessons: "put the dishes away" scores 0.639 on "load the dishwasher" against 0.435 before it exists, so the match floor (0.60) cleanly separates "I know this" from "I don't". | `server/fleet.ts` `ask`, `scripts/probe-rerank.ts` |
+| **Native reranking (`$rerank`, Voyage rerank-3)** | Reorders the vector candidates. Measured on our lessons: vector score alone ranks "evening reset" above "load the dishwasher" for "put the dishes away" (0.802 vs 0.770); after rerank the dishwasher lesson leads (0.649 vs 0.545), and "make me a sandwich" drops from 0.635 to 0.318. In the app, Home 2's best match is 0.435 before the dishwasher lesson exists and 0.639 after, against a 0.60 floor. | `server/fleet.ts` `ask`, `scripts/probe-texts.ts`, `scripts/probe-rerank.ts` |
 | **`$graphLookup`** | Walks a lesson up to its root and down through everything built on it, for lineage and for rollback. | `server/fleet.ts` `lineage`, `rollback` |
 | **Multi-document transactions** | Rollback and forget mark every affected lesson and write the receipt in one transaction. | `server/fleet.ts` `rollback`, `forgetTeacher` |
 | **TTL index (partial)** | Trial lessons expire after 24 hours unless three real requests prove them. | `scripts/setup.ts` `trial_ttl` |
 | **Schema validation** | `$jsonSchema` on lessons, homes and events keeps the memory in a valid shape. | `scripts/setup.ts` |
 
-Everything runs on the event's MongoDB Atlas Sandbox (M10, AWS us-west-1, MongoDB 9.0).
+Everything runs on the event's MongoDB Atlas Sandbox (M10, AWS us-west-1, MongoDB 9.0.7).
 
 ## What ElevenLabs does here
 
@@ -62,8 +62,9 @@ Presenter keys: **V** hold to talk · **T** teach · **L** lineage · right-clic
 
 Each figure was measured on 14 November 2026 against the sandbox cluster, from Toronto to us-west-1.
 
-- Publish to the last home hearing it: 253 to 863 ms across six homes, computed from `events` timestamps.
-- Rollback across four homes: 602 to 1,341 ms.
+- Publish to the last home hearing it: 253 to 863 ms across six homes over today's runs, computed from `events` timestamps.
+- Rollback across four homes: 602 to 2,281 ms over today's runs (Toronto to us-west-1; each home does several round trips).
+- Ask, "put the dishes away" on Home 2: best rerank score 0.435 before the dishwasher lesson exists, 0.639 after. The match floor is 0.60.
 - Pull the plug: 6 of 6 homes caught up from resume tokens, 0 lessons missing.
 - Auto-embedding lag: a new lesson was searchable 1.9 s after insert. Ask waits out that window.
 
@@ -71,15 +72,16 @@ Each figure was measured on 14 November 2026 against the sandbox cluster, from T
 
 - The fleet is simulated. One Lesson governs which skills a fleet shares, not how motors move. Any robot that can run a step list could plug in.
 - Six homes, one laptop server. We measured six homes and claim nothing beyond that.
-- Speech goes to ElevenLabs and lesson text goes to Voyage through Atlas. Nothing else leaves the laptop.
+- Teacher names are typed and marked unverified in this build. Auth0 sign-in is in the code (`web/src/auth.ts`, `server/index.ts`) but was not enabled for the demo, so the rollback permission is a server check on the presenter laptop's James account, not a proven identity.
+- Speech goes to ElevenLabs, and lesson text is embedded and reranked by Voyage models inside Atlas. The console loads its fonts from Google Fonts.
 
 ## How it was built (disclosure)
 
-All code in this repository was written on 14 November 2026 at the event, starting with the first commit at 10:06 AM during the kickoff (the official "hacking begins" slot was 10:45 AM). The git history is the record. No code, UI or data from before the event. The six homes, their kitchens and the seed lesson are generated by `scripts/demo-reset.ts`.
+All code in this repository was written on 14 November 2026 at the event. The first commit is at 10:06 AM, during the opening kickoff and before the 10:45 hacking start; it holds only a package.json, a .gitignore and a README stub, and the first source files follow from 10:12. The idea and a written plan existed before the day; no code, UI or data did. The git history is the record. The six homes, their kitchens and the seed lesson are generated by `scripts/demo-reset.ts`.
 
-Open-source components used, unmodified, under their licenses: Express (MIT), ws (MIT), MongoDB Node.js driver (Apache-2.0), jose (MIT), dotenv (BSD-2-Clause), React (MIT), Vite (MIT), @vitejs/plugin-react (MIT), @auth0/auth0-spa-js (MIT), @huggingface/transformers (Apache-2.0, offline fallback only: `EMBED_MODE=local` with all-MiniLM-L6-v2), Vitest (MIT), tsx (MIT), TypeScript (Apache-2.0), Playwright (Apache-2.0, screenshots). Fonts from Google Fonts (Archivo, IBM Plex Sans, JetBrains Mono, all under the OFL).
+Open-source components used, unmodified, under their licenses: Express (MIT), ws (MIT), MongoDB Node.js driver (Apache-2.0), jose (MIT), dotenv (BSD-2-Clause), React and react-dom (MIT), Vite (MIT), @vitejs/plugin-react (MIT), @auth0/auth0-spa-js (MIT), @huggingface/transformers (Apache-2.0) with the all-MiniLM-L6-v2 model (Apache-2.0), used only as the offline fallback (`EMBED_MODE=local`), Vitest (MIT), tsx (MIT), TypeScript (Apache-2.0), Playwright (Apache-2.0, screenshots and the demo recording), and the @types packages (MIT). Transitive dependencies are pinned in `package-lock.json`. Fonts from Google Fonts (Archivo, IBM Plex Sans, JetBrains Mono, all under the OFL).
 
-Services: MongoDB Atlas (Automated Embedding and `$rerank` with Voyage AI models), ElevenLabs (Scribe speech-to-text, text-to-speech), Auth0 (optional teacher sign-in).
+Services: MongoDB Atlas (Automated Embedding and `$rerank` with Voyage AI models), ElevenLabs (Scribe `scribe_v2` speech-to-text; `eleven_flash_v2_5` text-to-speech with ElevenLabs premade voices for the six robots and the video narration), Auth0 (optional teacher sign-in, off in the demo).
 
 Built by James Dare with Claude Code.
 
