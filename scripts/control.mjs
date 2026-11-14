@@ -15,6 +15,7 @@ const childEnv = { ...process.env, PORT: String(DEMO_PORT) };
 let child = null;
 let busy = null;
 let last = { action: null, ok: null, at: null, note: '' };
+let card = '';
 const logs = [];
 const log = (line) => { for (const l of String(line).split('\n')) if (l.trim()) logs.push(`${new Date().toLocaleTimeString('en-CA', { hour12: false })}  ${l}`); while (logs.length > 160) logs.shift(); };
 
@@ -90,6 +91,14 @@ const ACTIONS = {
     }));
     return `${ip} is allowed (Atlas applies it within about a minute)`;
   } },
+  runcheck: { label: 'Check my last run', run: () => new Promise((resolve, reject) => {
+    log('▶ scoring the last run against the pitch script');
+    execFile('node', ['scripts/run-check.mjs'], { cwd: ROOT, env: childEnv, timeout: 30000 }, (err, out, errOut) => {
+      if (err) { log(errOut || err.message); return reject(new Error('run check failed (is the server up?)')); }
+      card = out.split('\n').filter((l) => l && !l.startsWith('SUMMARY')).join('\n');
+      resolve((out.match(/^SUMMARY (.*)$/m) ?? [])[1] ?? 'scored');
+    });
+  }) },
   open_console: { label: 'Open console', run: async () => { execFile('open', ['-a', 'Google Chrome', `${DEMO}/`]); log('opened the console in Chrome'); } },
   open_pitch: { label: 'Open pitch page', run: async () => { execFile('open', ['-a', 'Google Chrome', 'https://claude.ai/artifact/Egd7qJWkAsxqbyTtTMHvCM']); log('opened the pitch page'); } },
 };
@@ -116,9 +125,14 @@ button.danger{border-color:var(--red);color:var(--red)}
 button:disabled{opacity:.45;cursor:wait}
 .plug{border:2px dashed #333;border-radius:14px;padding:12px}
 .note{font:600 15px 'JetBrains Mono',monospace;color:var(--green);min-height:20px}
+#card{height:auto;max-height:none;margin-top:10px;color:#f2f2f2;font-size:14px;border-color:var(--accent)}
 pre{margin:0;background:#070707;border:1px solid var(--line);border-radius:10px;padding:12px;font:500 13px/1.45 'JetBrains Mono',monospace;color:#cfcfcf;height:260px;overflow:auto;white-space:pre-wrap}
 </style></head><body><div class="wrap">
 <header><div class="wm">ONE LESSON · CONTROL</div><span id="st" class="status">checking…</span><span id="busy" class="busy"></span></header>
+<section><h2>Practice</h2><div class="grid">
+<button class="primary" data-a="runcheck">Check my last run<small>every beat ✓ or ✗ · your clock vs 3:00</small></button>
+<button data-a="reset">Reset for the next run<small>clean state · ~15 s</small></button>
+</div><pre id="card" hidden></pre></section>
 <section><h2>Demo server</h2><div class="grid">
 <button class="primary" data-a="reset">Reset &amp; start<small>clean state for a run · ~15 s</small></button>
 <button data-a="restart">Restart<small>keeps everything the fleet learned</small></button>
@@ -144,8 +158,8 @@ pre{margin:0;background:#070707;border:1px solid var(--line);border-radius:10px;
 <pre id="log"></pre>
 </div>
 <script>
-const st=document.getElementById('st'),busyEl=document.getElementById('busy'),note=document.getElementById('note'),logEl=document.getElementById('log');
-async function refresh(){try{const s=await (await fetch('/status')).json();st.textContent=s.up?'SERVER UP':'SERVER DOWN';st.className='status '+(s.up?'up':'down');busyEl.textContent=s.busy?('working: '+s.busy+'…'):'';document.querySelectorAll('button').forEach(b=>b.disabled=!!s.busy);const atBottom=logEl.scrollTop+logEl.clientHeight>=logEl.scrollHeight-8;logEl.textContent=s.logs.join('\\n');if(atBottom)logEl.scrollTop=logEl.scrollHeight;if(s.last&&s.last.action)note.textContent=(s.last.ok===false?'✗ ':'✓ ')+s.last.label+(s.last.note?' · '+s.last.note:'');}catch(e){st.textContent='control panel offline';st.className='status down';}}
+const cardEl=document.getElementById('card');const st=document.getElementById('st'),busyEl=document.getElementById('busy'),note=document.getElementById('note'),logEl=document.getElementById('log');
+async function refresh(){try{const s=await (await fetch('/status')).json();st.textContent=s.up?'SERVER UP':'SERVER DOWN';st.className='status '+(s.up?'up':'down');busyEl.textContent=s.busy?('working: '+s.busy+'…'):'';document.querySelectorAll('button').forEach(b=>b.disabled=!!s.busy);const atBottom=logEl.scrollTop+logEl.clientHeight>=logEl.scrollHeight-8;logEl.textContent=s.logs.join('\\n');if(atBottom)logEl.scrollTop=logEl.scrollHeight;if(s.card){cardEl.hidden=false;cardEl.textContent=s.card;}if(s.last&&s.last.action)note.textContent=(s.last.ok===false?'✗ ':'✓ ')+s.last.label+(s.last.note?' · '+s.last.note:'');}catch(e){st.textContent='control panel offline';st.className='status down';}}
 document.querySelectorAll('button[data-a]').forEach(b=>b.addEventListener('click',async()=>{note.textContent='';await fetch('/action/'+b.dataset.a,{method:'POST'});refresh();}));
 setInterval(refresh,800);refresh();
 </script></body></html>`;
@@ -154,7 +168,7 @@ const server = http.createServer(async (req, res) => {
   if (req.method === 'GET' && req.url === '/') { res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' }); return res.end(PAGE); }
   if (req.method === 'GET' && req.url === '/status') {
     res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' });
-    return res.end(JSON.stringify({ up: await up(), busy, last, logs: logs.slice(-120) }));
+    return res.end(JSON.stringify({ up: await up(), busy, last, card, logs: logs.slice(-120) }));
   }
   const m = req.method === 'POST' && req.url.match(/^\/action\/([a-z_]+)$/);
   if (m && ACTIONS[m[1]]) {
