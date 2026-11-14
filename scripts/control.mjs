@@ -80,6 +80,16 @@ const ACTIONS = {
     await stop(); await run('scripts/demo-reset.ts', 'reset demo state'); await run('scripts/voice-warm.ts', 'warm robot voices'); await start();
     return health();
   } },
+  allow_network: { label: 'Allow this network in Atlas', run: async () => {
+    const ip = (await (await fetch('https://api.ipify.org', { signal: AbortSignal.timeout(6000) })).text()).trim();
+    if (!/^\d+\.\d+\.\d+\.\d+$/.test(ip)) throw new Error('could not read this network\'s public IP');
+    log(`▶ allowing ${ip} in the Atlas project access list`);
+    await new Promise((resolve, reject) => execFile('atlas', ['accessLists', 'create', ip, '--type', 'ipAddress', '--projectId', process.env.ATLAS_PROJECT_ID ?? '6af87a9d8efd85d247399588', '--comment', 'One Lesson presenter network'], { timeout: 30000 }, (err, out, errOut) => {
+      const text = `${out}${errOut}`; log(text);
+      if (err && !/already|exists|DUPLICATE/i.test(text)) reject(new Error('atlas refused: ' + text.slice(0, 160))); else resolve();
+    }));
+    return `${ip} is allowed (Atlas applies it within about a minute)`;
+  } },
   open_console: { label: 'Open console', run: async () => { execFile('open', ['-a', 'Google Chrome', `${DEMO}/`]); log('opened the console in Chrome'); } },
   open_pitch: { label: 'Open pitch page', run: async () => { execFile('open', ['-a', 'Google Chrome', 'https://claude.ai/artifact/Egd7qJWkAsxqbyTtTMHvCM']); log('opened the pitch page'); } },
 };
@@ -124,6 +134,7 @@ pre{margin:0;background:#070707;border:1px solid var(--line);border-radius:10px;
 <button data-a="health">Health check<small>homes · memory sync · kids' rule</small></button>
 <button data-a="warm">Warm voices<small>robot lines play instantly</small></button>
 <button data-a="selftest">Full self-test, then reset<small>22 checks · ~2 min · not mid-demo</small></button>
+<button data-a="allow_network">Allow this network in Atlas<small>after switching to a hotspot</small></button>
 </div></section>
 <section><h2>Open</h2><div class="grid">
 <button data-a="open_console">Console<small>localhost:${DEMO_PORT} in Chrome</small></button>
