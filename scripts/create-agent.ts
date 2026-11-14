@@ -59,6 +59,9 @@ for (const llm of llms) {
       },
       tts: { voice_id: 'Xb7hH8MSUJpSbSDYk0k2', model_id: 'eleven_flash_v2' },
       turn: { turn_timeout: 8 },
+      // Demo rooms are loud: the agent always finishes its sentence (no interruption event) and filters background voices.
+      conversation: { client_events: ['audio', 'agent_response', 'user_transcript', 'agent_response_correction', 'agent_tool_response'] },
+      vad: { background_voice_detection: true },
     },
   };
   try {
