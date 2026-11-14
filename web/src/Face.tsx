@@ -61,7 +61,7 @@ export function Face({ x, y, mood, shield, label, sub, bubble, selected, focus, 
         </g>
       ) : sub ? <text y={(s / 2) * k + 48} className="face-sub">{sub}</text> : null}
       {bubble && (
-        <foreignObject x={-320} y={headTop - 62} width={640} height={54}>
+        <foreignObject x={Math.max(-320, 12 - x) + Math.min(0, (1268 - x) - 320)} y={headTop - 62} width={640} height={54}>
           <div className="bubble-wrap"><div className="bubble">{bubble}</div></div>
         </foreignObject>
       )}
