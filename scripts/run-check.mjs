@@ -78,8 +78,13 @@ if (K && A) {
       const tools = (d.transcript ?? []).flatMap((m) => (m.tool_calls ?? []).map((t) => t.tool_name));
       const said = (d.transcript ?? []).filter((m) => m.role === 'user').map((m) => m.message).join(' / ');
       agentEnd = c.start_time_unix_secs * 1000 + c.call_duration_secs * 1000;
-      const users = (d.transcript ?? []).filter((m) => m.role === 'user').length;
-      beat('C agent refuses', 120, c.start_time_unix_secs * 1000, tools.includes('check_instruction') && users === 1, `you said "${said}" · tool ${tools.join(', ') || 'none'} · ${c.call_duration_secs} s${users > 1 ? ' · it heard you AFTER the refusal: press C before you speak' : ''}`);
+      const tr = d.transcript ?? [];
+      const refusal = tr.find((m) => m.role === 'agent' && /can'?not|can't|won't/i.test(m.message ?? '') && !m.interrupted);
+      const afterRefusal = refusal ? tr.slice(tr.indexOf(refusal) + 1) : [];
+      const talkedBack = afterRefusal.some((m) => m.role === 'agent' && m.message);
+      const ok = tools.includes('check_instruction') && !!refusal && !talkedBack;
+      const why = !refusal ? ' · the refusal never finished' : talkedBack ? ' · Home 5 answered something you said after the refusal: press C before you speak' : afterRefusal.some((m) => m.role === 'user') ? ' · (it heard a word after the refusal, but you ended it in time)' : '';
+      beat('C agent refuses', 120, c.start_time_unix_secs * 1000, ok, `you said "${said}" · tool ${tools.join(', ') || 'none'} · ${c.call_duration_secs} s${why}`);
     } else beat('C agent refuses', 120, null, false, 'no agent conversation this run');
   } catch { beat('C agent refuses', 120, null, false, 'could not read the agent log'); }
 }
