@@ -57,7 +57,7 @@ Open http://localhost:8787 for the presenter console and `/teach` for the phone 
 
 - `npm run demo`: reset the demo state and start the server in one command
 - `npm test`: 14 unit tests (tag rules, refusals, spoken-lesson parser, language choice, provenance phrasing). Mutation-checked: disabling the kids' rule fails 1, never computing `sharp+child-reach` fails 3.
-- `npm run smoke`: 24 checks over the demo beats against a running server (run after `demo:reset`), including French and Spanish asks, spoken provenance, and that forget leaves no trace of the name and blocks a return
+- `npm run smoke`: 22 checks over the demo beats against a running server (run after `demo:reset`), including French and Spanish asks, spoken provenance, and that forget leaves no trace of the name and blocks a return
 - `npm run voice:warm`: pre-generates every line the robots say in the demo
 
 Presenter keys: **V** hold to talk · **T** teach · **L** lineage · **Shift+1/2/3** lessons · **Shift+4** French ask · **Shift+5** Mandarin ask · **Shift+6** "who taught you that?" · right-click a face for its kitchen and to take it offline.
@@ -66,8 +66,8 @@ Presenter keys: **V** hold to talk · **T** teach · **L** lineage · **Shift+1/
 
 Each figure was measured on 14 November 2026 against the sandbox cluster, from Toronto to us-west-1.
 
-- Publish to the last home hearing it: 179 and 382 ms across six homes in the two runs we saved, computed from `events` timestamps.
-- Rollback across four homes: 1,572 ms in the saved smoke run; the recorded video's run on the venue network shows 4,756 ms (Toronto to us-west-1; each home does several round trips).
+- Publish to the last home hearing it: 382 and 523 ms across six homes in the two runs we saved, computed from `events` timestamps.
+- Rollback across four homes: 1,591 ms in the saved smoke run; the recorded video's run on the venue network shows 4,756 ms (Toronto to us-west-1; each home does several round trips).
 - Ask, "put the dishes away" on Home 2: best rerank score 0.435 before the dishwasher lesson exists, 0.639 after. The match floor is 0.60.
 - Pull the plug: 6 of 6 homes caught up from resume tokens, 0 lessons missing.
 - Auto-embedding lag: a new lesson was searchable 1.9 s after insert. Ask waits out that window.
