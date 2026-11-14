@@ -63,13 +63,13 @@ npm run setup && npm run demo:reset && npm run build && npm start
 
 Open http://localhost:8787 for the presenter console and `/teach` for the phone page. `npm run control` opens a presenter control panel on http://localhost:8799 (reset, restart, stop and start the server, the pull-the-plug beat, health check, self-test).
 
-**What you can run without our sandbox** (checked from a fresh clone on 14 Nov 2026: `npm ci` in 12 s, 14 of 14 tests pass, the build is clean):
+**What you can run without our sandbox** (checked from a fresh clone on 14 Nov 2026: `npm ci` in 5 s, 16 of 16 tests pass, the build is clean):
 - `npm test` and `npm run build` need nothing at all.
 - The full demo needs a MongoDB Atlas cluster in `MONGODB_URI`. Automated Embedding and `$rerank` need a dedicated cluster (M10 or larger, MongoDB 9.0+) with storage auto-scaling on and native reranking enabled in the project settings. On any other Atlas cluster, set `EMBED_MODE=local` to embed on your machine instead (no `$rerank`; the match floor becomes 0.70).
 - `ELEVENLABS_API_KEY` is optional: without it the robots are silent and teaching is by tapping. `scripts/create-agent.ts` creates the Home 5 agent if you want to talk to it.
 
 - `npm run demo`: reset the demo state and start the server in one command
-- `npm test`: 14 unit tests (tag rules, refusals, spoken-lesson parser, language choice, provenance phrasing). Mutation-checked: disabling the kids' rule fails 1, never computing `sharp+child-reach` fails 3.
+- `npm test`: 16 unit tests (tag rules, refusals, spoken-lesson parser, spoken home address, language choice, provenance phrasing). Mutation-checked: disabling the kids' rule fails 1, never computing `sharp+child-reach` fails 3.
 - `npm run smoke`: 22 checks over the demo beats against a running server (run after `demo:reset`), including French and Spanish asks, spoken provenance, and that forget leaves no trace of the name and blocks a return
 - `npm run voice:warm`: pre-generates every line the robots say in the demo
 
