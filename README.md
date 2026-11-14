@@ -13,9 +13,11 @@ Track: **Memory You Can Govern**. Built at *Agents in Context Toronto* (MongoDB 
 1. **Before.** Ask Home 2 "put the dishes away". It answers out loud: "I don't know how to do that yet."
 2. **Teach.** James teaches "load the dishwasher" in Home 1. All six homes learn it, each in its own kitchen. Ask Home 2 again and it does it.
 3. **The bad lesson.** Alex teaches "kitchen tidy" v2, which puts the knife in the low drawer. Homes 1 to 4 take it. Homes 5 and 6 have kids, and their rules refuse it at the shield. Ask "tidy the kitchen": Home 2 puts the knife LOW, Home 5 puts it HIGH. Same words, different homes, different answers.
-4. **Trace and undo.** The lineage shows v1 (James) → v2 (Alex) → "evening reset" (built on v2), and which homes ran or refused each one. The server allows rollback only for James; Alex gets a 403. One click and every home that took v2 is back on v1. Ask Home 2 again: the knife goes high.
-5. **Pull the plug.** Kill the server. Another server writes a lesson while ours is down. Restart. Every home resumes its change stream from its saved resume token and catches up. The board reads "memory in sync 6/6, 0 lessons missing".
-6. **Forget me.** A teacher asks to be forgotten. Everything they taught leaves every home, with a receipt.
+4. **Who taught you that?** Ask Home 2 and it answers out loud from the fleet's memory: "Alex taught me this. Kitchen tidy, version 2, built on James's version 1. 4 homes took it. 2 refused."
+5. **Trace and undo.** The lineage shows v1 (James) → v2 (Alex) → "evening reset" (built on v2), and which homes ran or refused each one. The server allows rollback only for James; Alex gets a 403. One click and every home that took v2 is back on v1. Ask Home 2 again: the knife goes high.
+6. **This is Toronto.** Ask Home 5 "range les couteaux et les ciseaux" and it answers in French, in its own voice, from the same English lesson.
+7. **Pull the plug.** Kill the server. Another server writes a lesson while ours is down. Restart. Every home resumes its change stream from its saved resume token and catches up. The board reads "memory in sync 6/6, 0 lessons missing".
+8. **Forget me.** A teacher asks to be forgotten. In one transaction every lesson they taught leaves every home, and their name is erased from the lessons, the teacher record, the event log and the receipt.
 
 ## What MongoDB Atlas does here
 
@@ -35,7 +37,8 @@ Everything runs on the event's MongoDB Atlas Sandbox (M10, AWS us-west-1, MongoD
 ## What ElevenLabs does here
 
 - **Teach by talking.** Hold the mic and say "Kitchen tidy. Put the knife and the scissors in the bottom drawer." ElevenLabs **Scribe** (`scribe_v2`) transcribes it. A deterministic parser turns the transcript into steps, so the safety tags never come from a model. (`server/voice.ts` `hear`, `server/domain.ts` `parseSpokenLesson`)
-- **Ask by talking.** Hold V and ask any home a question.
+- **Ask by talking, in four languages.** Hold V and ask any home a question in English, French, Spanish or Mandarin. Scribe detects the language (trusted only when confident; otherwise the words decide, defaulting to English), Atlas finds the English lesson, and the robot answers in that language. We shipped only the languages that cleared the 0.60 floor in `scripts/probe-multilingual.ts`: French (0.826 for the dishes, 0.78 for the tidy), Spanish (0.650, 0.733), Mandarin (0.791, 0.745). Tamil and Hindi did not, so they are not offered.
+- **Ask "who taught you that?"** The home answers aloud from its last run, the lesson's `$graphLookup` ancestors and the event log.
 - **Every robot has its own voice.** Six homes, six ElevenLabs voices (`eleven_flash_v2_5`). They say what they learned, what they refused and why, and when they rolled back. Lines are cached on disk, so the stage plays from cache. (`server/voice.ts` `say`)
 
 ## Safety is deterministic
@@ -52,11 +55,12 @@ npm run setup && npm run demo:reset && npm run build && npm start
 
 Open http://localhost:8787 for the presenter console and `/teach` for the phone page.
 
-- `npm test`: 10 unit tests (tag rules, refusals, spoken-lesson parser)
-- `npm run smoke`: 15 checks over the demo beats against a running server (run after `demo:reset`)
+- `npm run demo`: reset the demo state and start the server in one command
+- `npm test`: 14 unit tests (tag rules, refusals, spoken-lesson parser, language choice, provenance phrasing). Mutation-checked: disabling the kids' rule fails 1, never computing `sharp+child-reach` fails 3.
+- `npm run smoke`: 21 checks over the demo beats against a running server (run after `demo:reset`), including French and Spanish asks, spoken provenance and forget erasure
 - `npm run voice:warm`: pre-generates every line the robots say in the demo
 
-Presenter keys: **V** hold to talk · **T** teach · **L** lineage · right-click a face for its kitchen and to take it offline.
+Presenter keys: **V** hold to talk · **T** teach · **L** lineage · **Shift+1/2/3** lessons · **Shift+4** French ask · **Shift+5** Mandarin ask · **Shift+6** "who taught you that?" · right-click a face for its kitchen and to take it offline.
 
 ## Measured today
 
