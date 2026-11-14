@@ -4,7 +4,7 @@ import { Face, type Mood } from './Face';
 import { Kitchen } from './Kitchen';
 import { hit, setSound, swoosh, thud } from './sound';
 import { useFleet } from './useFleet';
-import { LINES, setVoice, speak, type Lang, type Provenance } from './voice';
+import { LINES, setSpeakingListener, setVoice, speak, type Lang, type Provenance } from './voice';
 import { Mic } from './Mic';
 
 const MAP_W = 1280, MAP_H = 820;
@@ -13,6 +13,9 @@ const ORIGIN: Record<string, string> = { James: 'home-1', Alex: 'home-3' };
 
 type Pulse = { id: number; from: { x: number; y: number }; to: { x: number; y: number }; bad: boolean };
 const HAZARD = 'sharp+child-reach';
+// Each household's own language for the lines a robot says on its own (refusals, rollbacks).
+// Answers to a question always follow the language of the question.
+const HOME_LANG: Record<string, Lang> = { 'home-1': 'en', 'home-2': 'en', 'home-3': 'en', 'home-4': 'es', 'home-5': 'en', 'home-6': 'fr' };
 type AskResult = { homeId: string; lang: Lang; answer: 'ran' | 'unknown' | 'provenance'; say: string; lesson?: { title: string; version: number; teacherName: string; tags: string[] }; run?: { ms: number; path: any[] }; matches: any[]; provenance?: Provenance | null };
 
 const PRESETS: Record<string, { teacher: string; title: string; steps: Step[]; parent?: string }> = {
@@ -52,12 +55,17 @@ export default function App() {
   const [lastRun, setLastRun] = useState<Record<string, { path: any[]; key: string }>>({});
   const [error, setError] = useState<string | null>(null);
   const [heard, setHeard] = useState<string | null>(null);
+  const [split, setSplit] = useState<{ text: string; runs: Record<string, AskResult | null>; key?: string } | null>(null);
   const [sound, setSoundOn] = useState(true);
   const pid = useRef(0);
   const homesRef = useRef<Home[]>([]);
   const lessonsRef = useRef<Lesson[]>([]);
   const originRef = useRef<Record<string, string>>({});
   const spokeRevert = useRef(false);
+  const [focusHome, setFocusHome] = useState<{ id: string; until: number } | null>(null);
+  const [speakingHome, setSpeakingHome] = useState<string | null>(null);
+  const [chip, setChip] = useState<{ text: string; until: number } | null>(null);
+  useEffect(() => setSpeakingListener(setSpeakingHome), []);
 
   useEffect(() => { setIdentity({ name: teacher }); }, [teacher]);
   useEffect(() => { setSound(sound); setVoice(sound); }, [sound]);
@@ -90,7 +98,10 @@ export default function App() {
         setTimeout(() => setPulses((p) => p.filter((x) => x.id !== id)), TRAVEL_MS + 80);
       }
       setTimeout(() => {
-        if (refused) { flash(e.homeId!, 'refused', 2000); say(e.homeId!, `Blocked: ${e.rule}`, 3500); thud(); speak(e.homeId!, LINES.en.refused); }
+        if (refused) {
+          const hl = HOME_LANG[e.homeId!] ?? 'en';
+          flash(e.homeId!, 'refused', 2000); say(e.homeId!, `${hl !== 'en' ? hl.toUpperCase() + ' · ' : ''}Refused: kids' rule`, 3800); thud(); speak(e.homeId!, LINES[hl].refused, hl);
+        }
         else if (hazardous) { flash(e.homeId!, 'bad', 2000); say(e.homeId!, `Took v${d.version} from ${d.teacherName}`, 3000); hit(0.6); }
         else { flash(e.homeId!, 'happy', 2200); say(e.homeId!, `Learned "${d.title}"`, 3000); hit(1 + Math.random() * 0.2); }
       }, e.homeId === origin ? 0 : TRAVEL_MS);
@@ -100,7 +111,7 @@ export default function App() {
     if (e.type === 'reverted') {
       flash(e.homeId!, 'ring', 1500); say(e.homeId!, d.to ? `Back to v${d.toVersion}` : 'Forgot it', 3000);
       // Four homes revert at once; one voice says it for the room.
-      if (!spokeRevert.current) { spokeRevert.current = true; speak(e.homeId!, LINES.en.reverted(d.toVersion)); setTimeout(() => { spokeRevert.current = false; }, 2500); }
+      if (!spokeRevert.current) { spokeRevert.current = true; const hl = HOME_LANG[e.homeId!] ?? 'en'; speak(e.homeId!, LINES[hl].reverted(d.toVersion), hl); setTimeout(() => { spokeRevert.current = false; }, 2500); }
     }
     if (e.type === 'forgotten') setCaption(`A teacher asked to be forgotten. ${d.ids?.length ?? 0} lessons leave the fleet.`);
     if (e.type === 'caught_up') say(e.homeId!, 'Caught up', 3000);
@@ -126,10 +137,13 @@ export default function App() {
     return 'calm';
   };
 
-  const doAsk = async (homeId = askHome, text = askText, lang?: Lang) => {
+  const doAsk = async (homeId = askHome, text = askText, lang?: Lang): Promise<AskResult | null> => {
     setAsking(true); setError(null);
+    let out: AskResult | null = null;
     try {
+      setFocusHome({ id: homeId, until: Date.now() + 7500 });
       const r = await api<AskResult>('/api/ask', { homeId, text, ...(lang ? { lang } : {}) });
+      out = r;
       setAskOut(r);
       const h = fleet.homes.find((x) => x._id === homeId);
       const L = LINES[r.lang ?? 'en'];
@@ -141,7 +155,7 @@ export default function App() {
         flash(homeId, 'happy', 1500);
         speak(homeId, L.provenance(p), r.lang);
         setAsking(false);
-        return;
+        return r;
       }
       const kn = r.run?.path ? (() => { const p = r.run!.path; for (let i = 0; i < p.length - 1; i++) if (p[i].objectType === 'knife') return p[i + 1].targetType === 'low_drawer' || p[i + 1].targetType === 'floor_bin' ? 'knife LOW' : 'knife HIGH'; return ''; })() : '';
       say(homeId, r.answer === 'ran' ? `${tag}${r.lesson!.title} v${r.lesson!.version}${kn ? ` · ${kn}` : ''}` : r.say.startsWith("I don't") ? `${tag}I don't know how yet` : `${tag}Blocked here`, 6000);
@@ -153,6 +167,16 @@ export default function App() {
       setLastRun((x) => (r.run ? { ...x, [homeId]: { path: r.run.path, key: `${Date.now()}` } } : x));
     } catch (e: any) { setError(e.message); }
     setAsking(false);
+    return out;
+  };
+
+  // "Same words, two kitchens": ask Home 2 and Home 5 the same sentence and show both robots doing it side by side.
+  const runSplit = async (text = 'tidy the kitchen') => {
+    setSplit({ text, runs: {} });
+    const a = await doAsk('home-2', text);
+    const b = await doAsk('home-5', text);
+    const key = `${Date.now()}`;
+    setSplit({ text, runs: { 'home-2': a, 'home-5': b }, key });
   };
 
   const publish = async (p?: { teacher: string; title: string; steps: Step[]; parent?: string }) => {
@@ -194,7 +218,8 @@ export default function App() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.target as HTMLElement)?.tagName === 'INPUT' || (e.target as HTMLElement)?.tagName === 'SELECT') return;
-      if (e.key === 'Escape') { setPanel(null); setZoom(null); }
+      if (e.key === 'Escape') { setPanel(null); setZoom(null); setSplit(null); }
+      if (e.key === 'k' || (e.shiftKey && e.code === 'Digit7')) { e.preventDefault(); setPanel(null); runSplit(); }
       if (e.key === 't') setPanel((p) => (p === 'teach' ? null : 'teach'));
       if (e.key === 'l') setPanel((p) => (p === 'lineage' ? null : 'lineage'));
       // Keyboard twins for every voice beat (room noise): Shift+1..3 lessons, Shift+4 French, Shift+5 Mandarin, Shift+6 provenance.
@@ -216,7 +241,7 @@ export default function App() {
   // A ripple takes a few hundred ms; a home is only "behind" if it stays out of sync after that.
   const lastFleetEvent = [...fleet.events].reverse().find((e) => e.type !== 'asked' && e.type !== 'ran');
   const inFlight = !!lastFleetEvent && Date.now() - new Date(lastFleetEvent.at).getTime() < 2500;
-  const recent = fleet.events.filter((e) => e.type !== 'ran' || e.detail?.cause === 'ask').slice(-14).reverse();
+  const recent = fleet.events.filter((e) => e.type !== 'ran' && e.type !== 'caught_up').slice(-8).reverse();
   const goodLessons = fleet.lessons.filter((l) => l.status === 'trial' || l.status === 'proven');
   const families = [...new Set(fleet.lessons.filter((l) => !l.parentId).map((l) => l._id))];
 
@@ -232,7 +257,7 @@ export default function App() {
       </header>
 
       <main className="stage">
-        <svg viewBox={`0 0 ${MAP_W} ${MAP_H}`} className="map">
+        <svg viewBox={`0 0 ${MAP_W} ${MAP_H}`} className="map" preserveAspectRatio="xMidYMid slice">
           <defs>
             <pattern id="grid" width="32" height="32" patternUnits="userSpaceOnUse"><path d="M 32 0 L 0 0 0 32" fill="none" stroke="#141414" strokeWidth="1" /></pattern>
             <radialGradient id="pulseGlow"><stop offset="0" stopColor="#ff5a1f" stopOpacity="1" /><stop offset="1" stopColor="#ff5a1f" stopOpacity="0" /></radialGradient>
@@ -246,9 +271,7 @@ export default function App() {
           <path d="M 0 150 C 400 130, 800 140, 1280 120" className="hwy" />
           <text x={60} y={135} className="map-label">401</text>
           <path d={`M 700 ${MAP_H - 135} C 720 520, 690 380, 770 140`} className="hwy" />
-          <text x={735} y={480} className="map-label" transform="rotate(-80 735 480)">DVP</text>
           <path d="M 560 150 L 590 690" className="street" />
-          <text x={548} y={300} className="map-label" transform="rotate(87 548 300)">YONGE</text>
 
           {pulses.map((p) => <PulseDot key={p.id} p={p} />)}
 
@@ -256,8 +279,11 @@ export default function App() {
             const b = bubbles[h._id];
             return (
               <Face key={h._id} x={h.mapX * MAP_W} y={h.mapY * MAP_H} mood={moodOf(h)} shield={h.hasKids}
-                label={`${h.name.toUpperCase()} · ${h.hood.toUpperCase()}`} sub={h.hasKids ? 'kids · blocks sharp+child-reach' : Object.keys(h.activeLessons ?? {}).length + ' skills'}
+                label={`${h.name.toUpperCase()} · ${h.hood.toUpperCase()}${HOME_LANG[h._id] !== 'en' ? ` · ${HOME_LANG[h._id].toUpperCase()}` : ''}`}
+                sub={(() => { const n = Object.keys(h.activeLessons ?? {}).length; return `${n} ${n === 1 ? 'skill' : 'skills'}`; })()}
                 bubble={b && b.until > Date.now() ? b.text : null} selected={askHome === h._id}
+                focus={focusHome && focusHome.until > Date.now() ? (focusHome.id === h._id ? 'on' : 'dim') : null}
+                speaking={speakingHome === h._id}
                 onClick={() => setAskHome(h._id)}
                 onContextMenu={(ev) => { ev.preventDefault(); setZoom(h._id); }} />
             );
@@ -279,13 +305,12 @@ export default function App() {
             {!sb ? '' : sb.memory.outOfSync === 0 || !inFlight
               ? `memory in sync: ${sb.memory.homesInSync}/${sb.homesTotal} homes · ${sb.memory.outOfSync} lessons missing`
               : `syncing: ${sb.memory.outOfSync} lesson update${sb.memory.outOfSync === 1 ? '' : 's'} in flight`}
-            <span>{sb ? `caught up from resume tokens: ${sb.caughtUp}` : ''}</span>
+            {sb && sb.caughtUp > 0 && <span>caught up from resume tokens: {sb.caughtUp}</span>}
           </div>
           <div className="feed-title">LIVE EVENTS</div>
           <ol className="feed">
             {recent.map((e, i) => <li key={i} className={`ev ev-${e.type}`}><EventLine e={e} homes={fleet.homes} /></li>)}
           </ol>
-          <div className="meta">caught up after restart: {sb?.caughtUp ?? 0} · runs ok {sb?.runs.ok ?? 0} / failed {sb?.runs.failed ?? 0}</div>
         </aside>
       </main>
 
@@ -295,7 +320,8 @@ export default function App() {
         </div>
         <input value={askText} onChange={(e) => setAskText(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && doAsk()} />
         <button className="primary" disabled={asking} onClick={() => doAsk()}>{asking ? 'asking…' : 'Ask'}</button>
-        <Mic mode="ask" hotkey={panel !== 'teach'} label="ask (V)" onResult={(r) => { if (r.text) { setAskText(r.text); doAsk(askHome, r.text, r.lang); } }} />
+        <Mic mode="ask" hotkey={panel !== 'teach'} label="ask (V)" onResult={(r) => { if (r.text) { setChip({ text: `ElevenLabs Scribe heard · ${(r.lang ?? 'en').toUpperCase()} detected`, until: Date.now() + 6000 }); setAskText(r.text); doAsk(askHome, r.text, r.lang); } }} />
+        {chip && chip.until > Date.now() && <span className="chip">{chip.text}</span>}
         <div className="answer">
           {askOut && <><b>{fleet.homes.find((h) => h._id === askOut.homeId)?.name}{askOut.lang && askOut.lang !== 'en' ? ` [${askOut.lang.toUpperCase()}]` : ''}:</b> {askOut.say} {askOut.run && <em>{where(askOut.run.path.map((p: any) => (p.action === 'pick' ? { action: 'pick', objectType: p.objectType } : { action: 'place', targetType: p.targetType })))}</em>} {askOut.matches?.[0] && <span className="score">top match {askOut.matches[0].score}{askOut.matches[0].blockedBy ? ` (blocked: ${askOut.matches[0].blockedBy})` : ''}</span>}</>}
           {error && <span className="err">{error}</span>}
@@ -317,6 +343,7 @@ export default function App() {
           <div className="drawer-row">
             <Mic mode="teach" hotkey={panel === 'teach'} label="teach by voice (V)" onResult={(r) => {
               setHeard(r.text);
+              setChip({ text: `ElevenLabs Scribe heard · ${r.lesson?.steps?.length ? `${r.lesson.steps.length / 2} moves parsed` : 'no moves found'}`, until: Date.now() + 6000 });
               if (r.lesson?.steps?.length) { setDraft(r.lesson.steps); setHeld(null); }
               if (r.lesson?.title) setTitle(r.lesson.title);
             }} />
@@ -347,11 +374,40 @@ export default function App() {
             {tree?.nodes?.map((n: any) => (
               <div key={n._id} className={`node st-${n.status}`} style={{ marginLeft: (n.depth == null ? 0 : n.depth + 1) * 36 }}>
                 <div className="node-title">{n.title} <b>v{n.version}</b> <span className={`pill ${n.status}`}>{n.status.replace('_', ' ')}</span></div>
-                <div className="node-meta">taught by {n.teacherName} {n.teacherVerified ? <span className="ver">verified</span> : <span className="unverified">unverified</span>} · tags {n.tags.join(', ') || 'none'}</div>
+                <div className="node-meta">taught by {n.teacherName}{n.teacherVerified ? <> <span className="ver">verified</span></> : null} · tags {n.tags.join(', ') || 'none'}</div>
                 <div className="node-meta">reached {[...new Set([...(n.homes?.delivered ?? []), ...(n.homes?.ran ?? [])])].sort().map((h: string) => h.replace('home-', 'H')).join(' ') || '—'} · refused by {(n.homes?.refused ?? []).map((h: string) => h.replace('home-', 'H')).join(' ') || '—'}{n.homes?.reverted?.length ? ` · reverted in ${n.homes.reverted.map((h: string) => h.replace('home-', 'H')).join(' ')}` : ''}</div>
                 {(n.status === 'trial' || n.status === 'proven') && <button className="danger" onClick={() => rollback(n._id)}>Roll back (James only)</button>}
               </div>
             ))}
+          </div>
+        </div>
+      )}
+
+      {split && (
+        <div className="modal split" onClick={() => setSplit(null)}>
+          <div className="split-card" onClick={(e) => e.stopPropagation()}>
+            <div className="split-title">"{split.text}" <span>same words, two homes</span></div>
+            <div className="split-row">
+              {(['home-2', 'home-5'] as const).map((hid) => {
+                const h = fleet.homes.find((x) => x._id === hid);
+                const r = split.runs[hid];
+                const path = r?.run?.path ?? null;
+                let to = '';
+                if (path) for (let i = 0; i < path.length - 1; i++) if (path[i].objectType === 'knife') to = path[i + 1].targetType;
+                const low = to === 'low_drawer' || to === 'floor_bin';
+                return (
+                  <div key={hid} className="split-col">
+                    <div className={`split-head ${!to ? '' : low ? 'bad' : 'ok'}`}>
+                      <b>{h?.name.toUpperCase()} · {h?.hood.toUpperCase()}{h?.hasKids ? ' · KIDS' : ''}</b>
+                      <span>{!r ? 'asking…' : !to ? r.say : `knife → ${low ? 'LOW DRAWER' : 'HIGH CABINET'}`}</span>
+                    </div>
+                    {h && <Kitchen home={h} cell={46} path={path} runKey={split.key ? `${split.key}-${hid}` : undefined} />}
+                    <div className="split-sub">{r?.lesson ? `"${r.lesson.title}" v${r.lesson.version} · taught by ${r.lesson.teacherName}` : ''}</div>
+                  </div>
+                );
+              })}
+            </div>
+            <div className="hint">Esc to close</div>
           </div>
         </div>
       )}
@@ -394,7 +450,7 @@ function EventLine({ e, homes }: { e: FleetEvent; homes: Home[] }) {
     switch (e.type) {
       case 'published': return `${d.teacherName} published "${d.title}" v${d.version}`;
       case 'delivered': return `${h} learned "${d.title}" v${d.version}`;
-      case 'refused': return `${h} refused "${d.title}" v${d.version} · rule ${e.rule}`;
+      case 'refused': return `${h} refused "${d.title}" v${d.version} · kids' rule`;
       case 'ran': return `${h} ran "${d.title}" v${d.version} (${d.ms} ms)`;
       case 'rolled_back': return `${d.by} rolled back ${d.ids?.length} lesson(s)`;
       case 'reverted': return `${h} reverted → ${d.to ?? 'nothing'}`;

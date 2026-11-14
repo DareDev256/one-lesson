@@ -6,14 +6,19 @@ let chain: Promise<void> = Promise.resolve();
 export type Lang = 'en' | 'fr' | 'es' | 'zh';
 const url = (homeId: string, text: string, lang: Lang) => `/api/say?home=${encodeURIComponent(homeId)}&text=${encodeURIComponent(text)}&lang=${lang}`;
 
+let onSpeaking: ((homeId: string | null) => void) | null = null;
+export const setSpeakingListener = (fn: (homeId: string | null) => void) => { onSpeaking = fn; };
+
 export function speak(homeId: string, text: string, lang: Lang = 'en') {
   if (!enabled) return;
   chain = chain.then(() => new Promise<void>((resolve) => {
     const a = new Audio(url(homeId, text, lang));
-    const done = () => resolve();
+    let finished = false;
+    const done = () => { if (finished) return; finished = true; onSpeaking?.(null); resolve(); };
+    a.onplaying = () => onSpeaking?.(homeId);
     a.onended = done; a.onerror = done;
     a.play().catch(done);
-    setTimeout(done, 8000);
+    setTimeout(done, 9000);
   }));
 }
 

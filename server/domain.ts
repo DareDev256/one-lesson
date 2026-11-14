@@ -110,7 +110,7 @@ export const HOMES: HomeSeed[] = [
   { _id: 'home-1', name: 'Home 1', hood: 'Downtown', hasKids: false, blockedTags: [], mapX: 0.45, mapY: 0.74 },
   { _id: 'home-2', name: 'Home 2', hood: 'Etobicoke', hasKids: false, blockedTags: [], mapX: 0.13, mapY: 0.56 },
   { _id: 'home-3', name: 'Home 3', hood: 'North York', hasKids: false, blockedTags: [], mapX: 0.4, mapY: 0.3 },
-  { _id: 'home-4', name: 'Home 4', hood: 'Scarborough', hasKids: false, blockedTags: [], mapX: 0.87, mapY: 0.3 },
+  { _id: 'home-4', name: 'Home 4', hood: 'Scarborough', hasKids: false, blockedTags: [], mapX: 0.83, mapY: 0.3 },
   { _id: 'home-5', name: 'Home 5', hood: 'East York', hasKids: true, blockedTags: ['sharp+child-reach', 'chemical'], mapX: 0.66, mapY: 0.44 },
   { _id: 'home-6', name: 'Home 6', hood: 'Leslieville', hasKids: true, blockedTags: ['sharp+child-reach', 'chemical'], mapX: 0.8, mapY: 0.7 },
 ];
@@ -138,14 +138,17 @@ export function generateLayout(homeIndex: number): LayoutObject[] {
     taken.add(`${x},${y}`);
     return { x, y };
   };
-  const wall: [number, number][] = [];
-  for (let x = 0; x < GRID_W; x++) { wall.push([x, 0]); wall.push([x, GRID_H - 1]); }
-  for (let y = 1; y < GRID_H - 1; y++) { wall.push([0, y]); wall.push([GRID_W - 1, y]); }
+  // Walls mean something: cabinets and the sink line the top wall (up high), drawers and the bin sit on the
+  // bottom wall (down low), so "knife goes low" and "knife goes high" are visible as the robot walks down or up.
+  const top: [number, number][] = [];
+  const bottom: [number, number][] = [];
+  for (let x = 2; x < GRID_W - 1; x++) { top.push([x, 0]); bottom.push([x, GRID_H - 1]); }
   const floor: [number, number][] = [];
   for (let x = 2; x < GRID_W - 2; x++) for (let y = 2; y < GRID_H - 2; y++) floor.push([x, y]);
+  const WALL: Record<TargetType, [number, number][]> = { high_cabinet: top, sink: top, dishwasher: top, low_drawer: bottom, floor_bin: bottom };
 
   const out: LayoutObject[] = [];
-  for (const t of TARGET_TYPES) out.push({ id: t, type: t, ...pick(wall) });
+  for (const t of TARGET_TYPES) out.push({ id: t, type: t, ...pick(WALL[t]) });
   for (const o of OBJECT_TYPES) out.push({ id: o, type: o, ...pick(floor) });
   return out;
 }
