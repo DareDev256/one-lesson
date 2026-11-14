@@ -63,7 +63,7 @@ beat('Roll back', 110, rb && ms(rb), !!rb, rb ? `${st.scoreboard.lastRollback?.h
 // 8 French: every ask after the rollback until the agent
 const fr = rb ? asks.filter((a) => ms(a) > ms(rb) && a.detail?.lang === 'fr' && ranAfter(a)) : [];
 const tries = rb ? asks.filter((a) => ms(a) > ms(rb) && !a.detail?.provenance) : [];
-beat('French', 125, fr[0] && ms(fr[0]), fr.length > 0, fr.length ? `${tries.length} tr${tries.length === 1 ? 'y' : 'ies'}${tries.length > 1 ? `: ${tries.map((t) => `${t.homeId.replace('home-', 'H')} "${t.detail.text}" [${t.detail.lang}]`).join(' · ')}` : ''}` : 'no French ask ran');
+if (tries.length) beat('French (Q&A only)', 125, fr[0] && ms(fr[0]), fr.length > 0, fr.length ? `${tries.length} tr${tries.length === 1 ? 'y' : 'ies'}${tries.length > 1 ? `: ${tries.map((t) => `${t.homeId.replace('home-', 'H')} "${t.detail.text}" [${t.detail.lang}]`).join(' · ')}` : ''}` : 'no French ask ran');
 
 // 9 the ElevenLabs agent refuses (needs the key; the agent's tool is read-only, so it writes no server event)
 let agentEnd = null;
@@ -77,9 +77,10 @@ if (K && A) {
       const tools = (d.transcript ?? []).flatMap((m) => (m.tool_calls ?? []).map((t) => t.tool_name));
       const said = (d.transcript ?? []).filter((m) => m.role === 'user').map((m) => m.message).join(' / ');
       agentEnd = c.start_time_unix_secs * 1000 + c.call_duration_secs * 1000;
-      beat('C agent refuses', 135, c.start_time_unix_secs * 1000, tools.includes('check_instruction'), `you said "${said}" · tool ${tools.join(', ') || 'none'} · ${c.call_duration_secs} s`);
-    } else beat('C agent refuses', 135, null, false, 'no agent conversation this run');
-  } catch { beat('C agent refuses', 135, null, false, 'could not read the agent log'); }
+      const users = (d.transcript ?? []).filter((m) => m.role === 'user').length;
+      beat('C agent refuses', 120, c.start_time_unix_secs * 1000, tools.includes('check_instruction') && users === 1, `you said "${said}" · tool ${tools.join(', ') || 'none'} · ${c.call_duration_secs} s${users > 1 ? ' · it heard you AFTER the refusal: press C before you speak' : ''}`);
+    } else beat('C agent refuses', 120, null, false, 'no agent conversation this run');
+  } catch { beat('C agent refuses', 120, null, false, 'could not read the agent log'); }
 }
 
 // print
