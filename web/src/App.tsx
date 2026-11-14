@@ -57,6 +57,7 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const [heard, setHeard] = useState<string | null>(null);
   const [agentOpen, setAgentOpen] = useState(false);
+  const [mdb, setMdb] = useState(false);
   // The undo moment: a banner that names what was rolled back and fills in the measured homes and ms as reverts land.
   const [rb, setRb] = useState<{ ids: string[]; by: string; receipt: string; until: number } | null>(null);
   const [agentSpeaking, setAgentSpeaking] = useState(false);
@@ -228,7 +229,8 @@ export default function App() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.target as HTMLElement)?.tagName === 'INPUT' || (e.target as HTMLElement)?.tagName === 'SELECT') return;
-      if (e.key === 'Escape') { setPanel(null); setZoom(null); setSplit(null); setAgentOpen(false); }
+      if (e.key === 'Escape') { setPanel(null); setZoom(null); setSplit(null); setAgentOpen(false); setMdb(false); }
+      if (e.key === 'm' || (e.shiftKey && e.code === 'Digit9')) { e.preventDefault(); setMdb((x) => !x); }
       if (e.key === 'c' || (e.shiftKey && e.code === 'Digit8')) { e.preventDefault(); setPanel(null); setAgentOpen((o) => !o); }
       if (e.key === 'k' || (e.shiftKey && e.code === 'Digit7')) { e.preventDefault(); setPanel(null); runSplit(); }
       if (e.key === 't') setPanel((p) => (p === 'teach' ? null : 'teach'));
@@ -399,6 +401,27 @@ export default function App() {
           <div className="rb-big">ROLLED BACK</div>
           <div className="rb-what">{rb.ids.map((id) => { const l = fleet.lessons.find((x) => x._id === id); return l ? `"${l.title}" v${l.version}` : id; }).join(' + ')}</div>
           <div className="rb-num">{sb?.lastRollback ? `${sb.lastRollback.homes} homes back on the safe version · ${sb.lastRollback.ms ?? '…'} ms` : 'reverting…'} · one transaction · receipt {rb.receipt}</div>
+        </div>
+      )}
+
+      {mdb && (
+        <div className="modal mdb" onClick={() => setMdb(false)}>
+          <div className="mdb-card" onClick={(e) => e.stopPropagation()}>
+            <div className="mdb-title">Built on MongoDB Atlas <span>every feature does a job you just watched</span></div>
+            <div className="mdb-grid">
+              {[
+                ['Change streams + resume tokens', 'Every home hears every lesson live, and catches up after a crash from its own saved bookmark.', 'teach · pull the plug'],
+                ['Automated Embedding (voyage-4)', 'Atlas turns each lesson into a vector itself. No embedding code, no key.', 'ask'],
+                ['$vectorSearch with pre-filters', 'Finds the lesson by meaning, filtered to live lessons, in any of four languages.', 'ask · four languages'],
+                ['$rerank (rerank-3)', 'Rescores the candidates. Vector alone put the wrong lesson first; rerank fixed it.', 'ask · I don\'t know yet'],
+                ['$graphLookup', 'One query walks the family tree: who taught it, what was built on it.', 'who taught you that? · lineage'],
+                ['Multi-document transactions', 'Rollback and forget change every lesson and write the receipt, all or nothing.', 'undo · forget me'],
+                ['Partial TTL index', 'Trial lessons retire themselves unless three real requests prove them.', 'trial → proven'],
+                ['$jsonSchema validation', 'Lessons, homes and events can only be stored in a valid shape.', 'memory you can trust'],
+              ].map(([t, d, w]) => <div key={t} className="mdb-cell"><b>{t}</b><p>{d}</p><span>{w}</span></div>)}
+            </div>
+            <div className="mdb-foot">Sandbox cluster: M10 · AWS us-west-1 · MongoDB 9.0.7 · plus ElevenLabs Scribe, six voices and an Agents session for Home 5 · M or Esc to close</div>
+          </div>
         </div>
       )}
 

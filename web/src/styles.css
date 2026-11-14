@@ -188,3 +188,15 @@ input, select { font: 500 16px var(--mono); background: #0b0b0b; color: var(--in
 .rb-num { font: 600 18px var(--mono); color: var(--green); }
 @keyframes rbin { from { opacity: 0; transform: translate(-50%, -46%) scale(.94); } }
 @media (prefers-reduced-motion: reduce) { .rb-banner { animation: none; } }
+/* the MongoDB slide (M) */
+.modal.mdb { background: rgba(0,0,0,.92); }
+.mdb-card { width: min(1500px, calc(100vw - 48px)); background: #040404; border: 2px solid #00ed64; border-radius: 18px; padding: 28px 32px; display: grid; gap: 18px; }
+.mdb-title { font: 900 52px/1 var(--display); font-stretch: 66%; color: #00ed64; }
+.mdb-title span { display: block; font: 600 16px var(--mono); color: var(--dim); margin-top: 8px; letter-spacing: .06em; }
+.mdb-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+.mdb-cell { border: 1px solid #1d3d2a; border-radius: 12px; padding: 14px 16px; display: grid; gap: 6px; align-content: start; background: #06100a; }
+.mdb-cell b { font: 800 22px/1.1 var(--display); font-stretch: 72%; color: var(--ink); }
+.mdb-cell p { margin: 0; font: 500 15px/1.4 var(--sans); color: #cfcfcf; }
+.mdb-cell span { font: 700 12px var(--mono); color: var(--accent); text-transform: uppercase; letter-spacing: .06em; }
+.mdb-foot { font: 600 14px var(--mono); color: var(--dim); }
+@media (max-width: 1300px) { .mdb-grid { grid-template-columns: repeat(2, 1fr); } }
