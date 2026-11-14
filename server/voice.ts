@@ -23,20 +23,21 @@ export const HOME_VOICES: Record<string, { id: string; name: string }> = {
 
 export const voiceEnabled = () => !!KEY;
 
-export async function say(homeId: string, text: string): Promise<Buffer> {
+export async function say(homeId: string, text: string, lang = 'en'): Promise<Buffer> {
   const voice = HOME_VOICES[homeId];
   if (!voice) throw Object.assign(new Error('unknown home'), { status: 400 });
   const clean = text.replace(/\s+/g, ' ').trim().slice(0, 140);
   if (!clean) throw Object.assign(new Error('empty line'), { status: 400 });
   mkdirSync(CACHE, { recursive: true });
-  const file = path.join(CACHE, createHash('sha256').update(`${MODEL}|${voice.id}|${clean}`).digest('hex').slice(0, 24) + '.mp3');
+  const tag = lang === 'en' ? '' : `|${lang}`;
+  const file = path.join(CACHE, createHash('sha256').update(`${MODEL}|${voice.id}|${clean}${tag}`).digest('hex').slice(0, 24) + '.mp3');
   if (existsSync(file)) return readFileSync(file);
   if (!KEY) throw Object.assign(new Error('no ELEVENLABS_API_KEY'), { status: 503 });
   if (generated >= MAX_NEW_PER_RUN) throw Object.assign(new Error('voice cap reached for this run'), { status: 429 });
   const res = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voice.id}?output_format=mp3_44100_64`, {
     method: 'POST',
     headers: { 'xi-api-key': KEY, 'content-type': 'application/json', accept: 'audio/mpeg' },
-    body: JSON.stringify({ text: clean, model_id: MODEL, voice_settings: { stability: 0.45, similarity_boost: 0.8, speed: 1.08 } }),
+    body: JSON.stringify({ text: clean, model_id: MODEL, ...(lang !== 'en' ? { language_code: lang } : {}), voice_settings: { stability: 0.45, similarity_boost: 0.8, speed: 1.08 } }),
   });
   if (!res.ok) throw Object.assign(new Error(`elevenlabs ${res.status}: ${(await res.text()).slice(0, 160)}`), { status: 502 });
   const buf = Buffer.from(await res.arrayBuffer());
@@ -61,17 +62,17 @@ const STT_MODEL = process.env.ELEVENLABS_STT_MODEL ?? 'scribe_v2';
 const MAX_HEAR_PER_RUN = Number(process.env.HEAR_MAX ?? 150);
 let heard = 0;
 
-export async function hear(audio: Buffer, mime: string): Promise<string> {
+export async function hear(audio: Buffer, mime: string, mode: 'ask' | 'teach' = 'teach'): Promise<{ text: string; code: string | null; probability: number | null }> {
   if (!KEY) throw Object.assign(new Error('no ELEVENLABS_API_KEY'), { status: 503 });
   if (heard >= MAX_HEAR_PER_RUN) throw Object.assign(new Error('speech cap reached for this run'), { status: 429 });
   if (audio.length < 800) throw Object.assign(new Error('no audio'), { status: 400 });
   heard++;
   const form = new FormData();
   form.append('model_id', STT_MODEL);
-  form.append('language_code', 'en');
+  if (mode === 'teach') form.append('language_code', 'en');
   form.append('file', new Blob([new Uint8Array(audio)], { type: mime || 'audio/webm' }), 'speech.webm');
   const res = await fetch('https://api.elevenlabs.io/v1/speech-to-text', { method: 'POST', headers: { 'xi-api-key': KEY }, body: form });
   if (!res.ok) throw Object.assign(new Error(`elevenlabs stt ${res.status}: ${(await res.text()).slice(0, 160)}`), { status: 502 });
   const j: any = await res.json();
-  return String(j.text ?? '').trim();
+  return { text: String(j.text ?? '').trim(), code: j.language_code ?? null, probability: j.language_probability ?? null };
 }

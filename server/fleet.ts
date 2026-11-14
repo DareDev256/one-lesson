@@ -2,7 +2,7 @@
 // lineage with $graphLookup, rollback and forget in transactions, and the scoreboard.
 import type { ChangeStream, ChangeStreamDocument } from 'mongodb';
 import { client, collections, GOOD_STATUSES, type FleetEvent, type Home, type Lesson } from './db';
-import { adaptToLayout, blockingRule, computeTags, describeSteps, lessonText, pathLength, validateSteps } from './domain';
+import { adaptToLayout, blockingRule, computeTags, describeSteps, lessonText, pathLength, PROVENANCE_ASK, validateSteps, type Lang } from './domain';
 import { embed, EMBED_MODE, RERANK_MODEL } from './embed';
 
 export interface Teacher { id: string; name: string; verified: boolean }
@@ -222,10 +222,37 @@ export const MATCH_FLOOR = Number(process.env.MATCH_FLOOR ?? (EMBED_MODE === 'at
 // Atlas builds auto-embeddings asynchronously (measured ~1.9 s from insert to searchable).
 const INDEX_LAG_MS = Number(process.env.INDEX_LAG_MS ?? 3000);
 
-export async function ask(homeId: string, text: string) {
+/** "Who taught you that?": the home's last requested run, its lesson, the lesson's ancestors, and how far it spread. */
+export async function provenance(homeId: string) {
+  const { runs, lessons, events } = await collections();
+  const [last] = await runs.find({ homeId, cause: 'ask' }).sort({ startedAt: -1 }).limit(1).toArray();
+  if (!last) return null;
+  const [l] = await lessons.aggregate([
+    { $match: { _id: last.lessonId } },
+    { $graphLookup: { from: 'lessons', startWith: '$parentId', connectFromField: 'parentId', connectToField: '_id', as: 'ancestors', depthField: 'depth' } },
+    { $project: { embedding: 0, embedText: 0, 'ancestors.embedding': 0, 'ancestors.embedText': 0 } },
+  ]).toArray();
+  if (!l) return null;
+  const [took, refused] = await Promise.all([
+    events.distinct('homeId', { lessonId: l._id, type: 'delivered' }),
+    events.distinct('homeId', { lessonId: l._id, type: 'refused' }),
+  ]);
+  const parents = (l.ancestors as any[]).sort((a, b) => a.depth - b.depth).map((a) => ({ id: a._id, title: a.title, version: a.version, teacherName: a.teacherName }));
+  return {
+    lesson: { id: l._id, title: l.title, version: l.version, teacherName: l.teacherName, teacherVerified: l.teacherVerified, status: l.status, createdAt: l.createdAt },
+    parents, took: took.length, refused: refused.length,
+  };
+}
+
+export async function ask(homeId: string, text: string, lang: Lang = 'en') {
   const { homes, lessons } = await collections();
   const home = await homes.findOne({ _id: homeId });
   if (!home) throw new Error(`no home ${homeId}`);
+  if (PROVENANCE_ASK.test(text)) {
+    const p = await provenance(homeId);
+    await emit({ type: 'asked', homeId, detail: { text, lang, provenance: p ? p.lesson.id : null } });
+    return { homeId, text, lang, answer: 'provenance' as const, provenance: p, say: p ? `${p.lesson.teacherName} taught me "${p.lesson.title}" v${p.lesson.version}.` : "I haven't done anything yet.", matches: [] };
+  }
   const newest = await lessons.findOne({}, { sort: { createdAt: -1 }, projection: { createdAt: 1 } });
   const wait = newest ? INDEX_LAG_MS - (Date.now() - newest.createdAt.getTime()) : 0;
   if (wait > 0) await new Promise((r) => setTimeout(r, wait));
@@ -256,11 +283,11 @@ export async function ask(homeId: string, text: string) {
   // The home's own rules drop lessons it may not use; then it runs the version it has active for that skill.
   const allowed = all.filter((l) => !blockingRule(l.tags, blocked) && l.score >= MATCH_FLOOR);
   const skill = allowed.find((l) => home.activeLessons?.[l.skillKey]);
-  await emit({ type: 'asked', homeId, detail: { text, top: matches.slice(0, 3) } });
+  await emit({ type: 'asked', homeId, detail: { text, lang, top: matches.slice(0, 3) } });
   if (!skill) {
     const refused = all.find((l) => blockingRule(l.tags, blocked) && l.score >= MATCH_FLOOR);
     return {
-      homeId, text, answer: 'unknown' as const,
+      homeId, text, lang, answer: 'unknown' as const,
       say: refused
         ? `I won't do that here: "${refused.title}" is blocked by this home's rule (${blockingRule(refused.tags, blocked)}).`
         : "I don't know how to do that yet.",
@@ -271,7 +298,7 @@ export async function ask(homeId: string, text: string) {
   if (!lesson) throw new Error('active lesson missing');
   const run = await runLesson(home, lesson, 'ask');
   return {
-    homeId, text, answer: 'ran' as const,
+    homeId, text, lang, answer: 'ran' as const,
     say: `Doing "${lesson.title}" v${lesson.version} (taught by ${lesson.teacherName}).`,
     lesson: { id: lesson._id, title: lesson.title, version: lesson.version, teacherName: lesson.teacherName, tags: lesson.tags },
     run: { ms: run.ms, path: run.path },

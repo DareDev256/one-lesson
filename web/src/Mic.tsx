@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 
 /** Hold to talk (mouse, touch, or the V key). On release the audio goes to /api/hear (ElevenLabs Scribe). */
 export function Mic({ mode, onResult, label = 'hold to talk', hotkey = false }: {
-  mode: 'ask' | 'teach'; onResult: (r: { text: string; lesson?: any }) => void; label?: string; hotkey?: boolean;
+  mode: 'ask' | 'teach'; onResult: (r: { text: string; lang?: any; lesson?: any }) => void; label?: string; hotkey?: boolean;
 }) {
   const [state, setState] = useState<'idle' | 'rec' | 'hearing' | 'error'>('idle');
   const rec = useRef<MediaRecorder | null>(null);

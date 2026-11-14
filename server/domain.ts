@@ -221,3 +221,25 @@ export function parseSpokenLesson(transcript: string): { title: string | null; s
   for (const o of pending) leftover.push(o);
   return { title, steps, leftover };
 }
+
+// ---------------------------------------------------------------- languages (Ask only; teaching stays English)
+
+export type Lang = 'en' | 'fr' | 'es' | 'zh';
+export const LANGS: Lang[] = ['en', 'fr', 'es', 'zh'];
+const ISO3: Record<string, Lang> = { eng: 'en', en: 'en', fra: 'fr', fr: 'fr', spa: 'es', es: 'es', zho: 'zh', cmn: 'zh', yue: 'zh', zh: 'zh' };
+const FR = /\b(les|des|dans|mets|range|ranger|fais|cuisine|vaisselle|couteaux?|ciseaux|assiettes?|qui t'a|lave-vaisselle|s'il te pla[iî]t)\b/i;
+const ES = /\b(los|las|platos|cocina|recoge|guarda|ordena|cuchillos?|tijeras|lavavajillas|qui[eé]n te)\b/i;
+
+/** Shipped languages only: measured with scripts/probe-multilingual.ts (fr, es, zh pass; ta, hi did not and are not offered).
+ *  Trust the speech model's language when it is confident and allowed; otherwise decide from the words; default English. */
+export function detectLang(text: string, hint?: { code?: string | null; probability?: number | null } | string | null): Lang {
+  if (typeof hint === 'string' && LANGS.includes(hint as Lang)) return hint as Lang;
+  if (hint && typeof hint === 'object' && hint.code && (hint.probability ?? 0) >= 0.6 && ISO3[hint.code]) return ISO3[hint.code];
+  if (/[一-鿿]/.test(text)) return 'zh';
+  if (FR.test(text)) return 'fr';
+  if (ES.test(text)) return 'es';
+  return 'en';
+}
+
+/** "Who taught you that?" in the shipped languages. */
+export const PROVENANCE_ASK = /(who taught (you|that|this)|where did you learn|qui t'a appris|qui vous a appris|qui(é|e)n te (lo )?ense(ñ|n)(ó|o)|谁教(你|的))/i;

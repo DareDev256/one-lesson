@@ -8,7 +8,7 @@ import { createRemoteJWKSet, jwtVerify } from 'jose';
 import { collections, getDb } from './db';
 import { EMBED_PROVIDER, warmEmbeddings } from './embed';
 import { hear, say, voiceEnabled } from './voice';
-import { parseSpokenLesson } from './domain';
+import { detectLang, LANGS, parseSpokenLesson, type Lang } from './domain';
 import {
   ask, forgetTeacher, lineage, onBroadcast, publish, rollback, scoreboard, startAllWorkers, startWorker, stopWorker, type Teacher,
 } from './fleet';
@@ -63,15 +63,17 @@ app.get('/api/config', (_req, res) => res.json({ auth0Domain: AUTH0_DOMAIN ?? nu
 app.post('/api/hear', express.raw({ type: () => true, limit: '6mb' }), wrap(async (req) => {
   const teacher = isLocal(req) ? null : await teacherFrom(req);
   if (!isLocal(req) && !teacher?.verified) throw Object.assign(new Error('sign in to use voice'), { status: 401 });
-  const text = await hear(req.body as Buffer, String(req.headers['content-type'] ?? 'audio/webm'));
-  return { text, lesson: req.query.mode === 'teach' ? parseSpokenLesson(text) : undefined };
+  const mode = req.query.mode === 'ask' ? 'ask' : 'teach';
+  const h = await hear(req.body as Buffer, String(req.headers['content-type'] ?? 'audio/webm'), mode);
+  return { text: h.text, lang: mode === 'ask' ? detectLang(h.text, { code: h.code, probability: h.probability }) : 'en', heardAs: h.code, lesson: mode === 'teach' ? parseSpokenLesson(h.text) : undefined };
 }));
 
 // Robot voices (ElevenLabs), presenter laptop only so a public tunnel can't spend the quota.
 app.get('/api/say', async (req, res) => {
   try {
     if (!isLocal(req)) return res.status(403).json({ error: 'presenter only' });
-    const audio = await say(String(req.query.home ?? ''), String(req.query.text ?? ''));
+    const lang = LANGS.includes(String(req.query.lang) as Lang) ? String(req.query.lang) : 'en';
+    const audio = await say(String(req.query.home ?? ''), String(req.query.text ?? ''), lang);
     res.setHeader('content-type', 'audio/mpeg');
     res.setHeader('cache-control', 'private, max-age=3600');
     res.send(audio);
@@ -106,9 +108,9 @@ app.post('/api/publish', wrap(async (req) => {
 }));
 
 app.post('/api/ask', wrap(async (req) => {
-  const { homeId, text } = req.body ?? {};
+  const { homeId, text, lang } = req.body ?? {};
   if (typeof text !== 'string' || !text.trim() || text.length > 200) throw new Error('text is required');
-  return ask(String(homeId), text.trim());
+  return ask(String(homeId), text.trim(), detectLang(text, typeof lang === 'string' ? lang : null));
 }));
 
 app.get('/api/lineage/:id', wrap((req) => lineage(String(req.params.id))));

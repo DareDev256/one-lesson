@@ -4,7 +4,7 @@ import { Face, type Mood } from './Face';
 import { Kitchen } from './Kitchen';
 import { hit, setSound, swoosh, thud } from './sound';
 import { useFleet } from './useFleet';
-import { LINES, setVoice, speak } from './voice';
+import { LINES, setVoice, speak, type Lang, type Provenance } from './voice';
 import { Mic } from './Mic';
 
 const MAP_W = 1280, MAP_H = 820;
@@ -13,7 +13,7 @@ const ORIGIN: Record<string, string> = { James: 'home-1', Alex: 'home-3' };
 
 type Pulse = { id: number; from: { x: number; y: number }; to: { x: number; y: number }; bad: boolean };
 const HAZARD = 'sharp+child-reach';
-type AskResult = { homeId: string; answer: 'ran' | 'unknown'; say: string; lesson?: { title: string; version: number; teacherName: string; tags: string[] }; run?: { ms: number; path: any[] }; matches: any[] };
+type AskResult = { homeId: string; lang: Lang; answer: 'ran' | 'unknown' | 'provenance'; say: string; lesson?: { title: string; version: number; teacherName: string; tags: string[] }; run?: { ms: number; path: any[] }; matches: any[]; provenance?: Provenance | null };
 
 const PRESETS: Record<string, { teacher: string; title: string; steps: Step[]; parent?: string }> = {
   '1': { teacher: 'James', title: 'load the dishwasher', steps: [{ action: 'pick', objectType: 'plate' }, { action: 'place', targetType: 'dishwasher' }, { action: 'pick', objectType: 'cup' }, { action: 'place', targetType: 'dishwasher' }] },
@@ -90,7 +90,7 @@ export default function App() {
         setTimeout(() => setPulses((p) => p.filter((x) => x.id !== id)), TRAVEL_MS + 80);
       }
       setTimeout(() => {
-        if (refused) { flash(e.homeId!, 'refused', 2000); say(e.homeId!, `Blocked: ${e.rule}`, 3500); thud(); speak(e.homeId!, LINES.refused); }
+        if (refused) { flash(e.homeId!, 'refused', 2000); say(e.homeId!, `Blocked: ${e.rule}`, 3500); thud(); speak(e.homeId!, LINES.en.refused); }
         else if (hazardous) { flash(e.homeId!, 'bad', 2000); say(e.homeId!, `Took v${d.version} from ${d.teacherName}`, 3000); hit(0.6); }
         else { flash(e.homeId!, 'happy', 2200); say(e.homeId!, `Learned "${d.title}"`, 3000); hit(1 + Math.random() * 0.2); }
       }, e.homeId === origin ? 0 : TRAVEL_MS);
@@ -100,7 +100,7 @@ export default function App() {
     if (e.type === 'reverted') {
       flash(e.homeId!, 'ring', 1500); say(e.homeId!, d.to ? `Back to v${d.toVersion}` : 'Forgot it', 3000);
       // Four homes revert at once; one voice says it for the room.
-      if (!spokeRevert.current) { spokeRevert.current = true; speak(e.homeId!, LINES.reverted(d.toVersion)); setTimeout(() => { spokeRevert.current = false; }, 2500); }
+      if (!spokeRevert.current) { spokeRevert.current = true; speak(e.homeId!, LINES.en.reverted(d.toVersion)); setTimeout(() => { spokeRevert.current = false; }, 2500); }
     }
     if (e.type === 'forgotten') setCaption(`A teacher asked to be forgotten. ${d.ids?.length ?? 0} lessons leave the fleet.`);
     if (e.type === 'caught_up') say(e.homeId!, 'Caught up', 3000);
@@ -126,19 +126,30 @@ export default function App() {
     return 'calm';
   };
 
-  const doAsk = async (homeId = askHome, text = askText) => {
+  const doAsk = async (homeId = askHome, text = askText, lang?: Lang) => {
     setAsking(true); setError(null);
     try {
-      const r = await api<AskResult>('/api/ask', { homeId, text });
+      const r = await api<AskResult>('/api/ask', { homeId, text, ...(lang ? { lang } : {}) });
       setAskOut(r);
       const h = fleet.homes.find((x) => x._id === homeId);
+      const L = LINES[r.lang ?? 'en'];
+      const tag = r.lang && r.lang !== 'en' ? `${r.lang.toUpperCase()} · ` : '';
+      if (r.answer === 'provenance') {
+        const p = r.provenance ?? null;
+        say(homeId, p ? `${tag}taught by ${p.lesson.teacherName} · v${p.lesson.version}${p.parents[0] ? ` ← ${p.parents[0].teacherName} v${p.parents[0].version}` : ''}` : 'nothing yet', 7000);
+        setCaption(`Ask ${h?.name}: "${text}" → ${p ? `${p.lesson.teacherName} taught it, "${p.lesson.title}" v${p.lesson.version}${p.parents[0] ? `, built on ${p.parents[0].teacherName}'s v${p.parents[0].version}` : ''}. ${p.took} homes took it, ${p.refused} refused.` : 'nothing yet.'}`);
+        flash(homeId, 'happy', 1500);
+        speak(homeId, L.provenance(p), r.lang);
+        setAsking(false);
+        return;
+      }
       const kn = r.run?.path ? (() => { const p = r.run!.path; for (let i = 0; i < p.length - 1; i++) if (p[i].objectType === 'knife') return p[i + 1].targetType === 'low_drawer' || p[i + 1].targetType === 'floor_bin' ? 'knife LOW' : 'knife HIGH'; return ''; })() : '';
-      say(homeId, r.answer === 'ran' ? `${r.lesson!.title} v${r.lesson!.version}${kn ? ` · ${kn}` : ''}` : r.say.startsWith("I don't") ? "I don't know how yet" : 'Blocked here', 6000);
-      setCaption(`Ask ${h?.name}: "${text}" → ${r.say}${kn ? ` ${kn.replace('knife ', 'Knife goes ')}.` : ''}`);
+      say(homeId, r.answer === 'ran' ? `${tag}${r.lesson!.title} v${r.lesson!.version}${kn ? ` · ${kn}` : ''}` : r.say.startsWith("I don't") ? `${tag}I don't know how yet` : `${tag}Blocked here`, 6000);
+      setCaption(`Ask ${h?.name}${tag ? ` (${r.lang.toUpperCase()})` : ''}: "${text}" → ${r.say}${kn ? ` ${kn.replace('knife ', 'Knife goes ')}.` : ''}`);
       if (r.answer === 'ran') flash(homeId, kn === 'knife LOW' ? 'bad' : 'happy', 1800);
       speak(homeId, r.answer === 'ran'
-        ? LINES.ran(r.lesson!.title, r.lesson!.version, r.lesson!.teacherName, kn === 'knife LOW' ? 'low' : kn === 'knife HIGH' ? 'high' : '')
-        : r.say.startsWith("I don't") ? LINES.unknown : LINES.blockedAsk);
+        ? L.ran(r.lesson!.title, r.lesson!.version, r.lesson!.teacherName, kn === 'knife LOW' ? 'low' : kn === 'knife HIGH' ? 'high' : '')
+        : r.say.startsWith("I don't") ? L.unknown : L.blockedAsk, r.lang);
       setLastRun((x) => (r.run ? { ...x, [homeId]: { path: r.run.path, key: `${Date.now()}` } } : x));
     } catch (e: any) { setError(e.message); }
     setAsking(false);
@@ -186,7 +197,11 @@ export default function App() {
       if (e.key === 'Escape') { setPanel(null); setZoom(null); }
       if (e.key === 't') setPanel((p) => (p === 'teach' ? null : 'teach'));
       if (e.key === 'l') setPanel((p) => (p === 'lineage' ? null : 'lineage'));
-      if (e.shiftKey && ['!', '@', '#'].includes(e.key)) publish(PRESETS[{ '!': '1', '@': '2', '#': '3' }[e.key]!]);
+      // Keyboard twins for every voice beat (room noise): Shift+1..3 lessons, Shift+4 French, Shift+5 Mandarin, Shift+6 provenance.
+      if (e.shiftKey && ['Digit1', 'Digit2', 'Digit3'].includes(e.code)) publish(PRESETS[e.code.slice(-1)]);
+      if (e.shiftKey && e.code === 'Digit4') { setAskHome('home-5'); setAskText('range les couteaux et les ciseaux'); doAsk('home-5', 'range les couteaux et les ciseaux', 'fr'); }
+      if (e.shiftKey && e.code === 'Digit5') { setAskHome('home-2'); setAskText('把刀和剪刀收好'); doAsk('home-2', '把刀和剪刀收好', 'zh'); }
+      if (e.shiftKey && e.code === 'Digit6') { setAskText('who taught you that?'); doAsk(askHome, 'who taught you that?'); }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
@@ -280,9 +295,9 @@ export default function App() {
         </div>
         <input value={askText} onChange={(e) => setAskText(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && doAsk()} />
         <button className="primary" disabled={asking} onClick={() => doAsk()}>{asking ? 'asking…' : 'Ask'}</button>
-        <Mic mode="ask" hotkey={panel !== 'teach'} label="ask (V)" onResult={(r) => { if (r.text) { setAskText(r.text); doAsk(askHome, r.text); } }} />
+        <Mic mode="ask" hotkey={panel !== 'teach'} label="ask (V)" onResult={(r) => { if (r.text) { setAskText(r.text); doAsk(askHome, r.text, r.lang); } }} />
         <div className="answer">
-          {askOut && <><b>{fleet.homes.find((h) => h._id === askOut.homeId)?.name}:</b> {askOut.say} {askOut.run && <em>{where(askOut.run.path.map((p: any) => (p.action === 'pick' ? { action: 'pick', objectType: p.objectType } : { action: 'place', targetType: p.targetType })))}</em>} {askOut.matches?.[0] && <span className="score">top match {askOut.matches[0].score}{askOut.matches[0].blockedBy ? ` (blocked: ${askOut.matches[0].blockedBy})` : ''}</span>}</>}
+          {askOut && <><b>{fleet.homes.find((h) => h._id === askOut.homeId)?.name}{askOut.lang && askOut.lang !== 'en' ? ` [${askOut.lang.toUpperCase()}]` : ''}:</b> {askOut.say} {askOut.run && <em>{where(askOut.run.path.map((p: any) => (p.action === 'pick' ? { action: 'pick', objectType: p.objectType } : { action: 'place', targetType: p.targetType })))}</em>} {askOut.matches?.[0] && <span className="score">top match {askOut.matches[0].score}{askOut.matches[0].blockedBy ? ` (blocked: ${askOut.matches[0].blockedBy})` : ''}</span>}</>}
           {error && <span className="err">{error}</span>}
         </div>
         <button className="ghost" onClick={() => setPanel(panel === 'teach' ? null : 'teach')}>Teach (T)</button>
