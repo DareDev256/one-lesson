@@ -16,7 +16,8 @@
     "web:dev": "vite --config web/vite.config.ts",
     "build": "vite build --config web/vite.config.ts",
     "test": "vitest run",
-    "smoke": "tsx scripts/smoke.ts"
+    "smoke": "tsx scripts/smoke.ts",
+    "voice:warm": "tsx scripts/voice-warm.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^1.8.0",

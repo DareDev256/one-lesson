@@ -113,3 +113,8 @@ input, select { font: 500 16px var(--mono); background: #0b0b0b; color: var(--in
 .modal { position: fixed; inset: 0; background: rgba(0,0,0,0.75); display: grid; place-items: center; z-index: 10; }
 .modal-card { background: #070707; border: 1px solid #2a2a2a; border-radius: 12px; padding: 16px; display: flex; flex-direction: column; gap: 12px; max-width: calc(100vw - 32px); }
 .score { font: 500 12px var(--mono); color: var(--dim); margin-left: 8px; }
+.mic { border-color: #3a3a3a; white-space: nowrap; user-select: none; touch-action: none; }
+.mic-rec { background: var(--red); border-color: var(--red); color: #000; animation: blink 0.8s steps(2) infinite; }
+.mic-hearing { color: var(--accent); border-color: var(--accent); }
+.mic-error { color: var(--red); }
+.heard { font: 500 14px var(--mono); color: #cfcfcf; align-self: center; }

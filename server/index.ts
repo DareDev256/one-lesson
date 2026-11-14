@@ -7,6 +7,8 @@ import { WebSocketServer } from 'ws';
 import { createRemoteJWKSet, jwtVerify } from 'jose';
 import { collections, getDb } from './db';
 import { EMBED_PROVIDER, warmEmbeddings } from './embed';
+import { hear, say, voiceEnabled } from './voice';
+import { parseSpokenLesson } from './domain';
 import {
   ask, forgetTeacher, lineage, onBroadcast, publish, rollback, scoreboard, startAllWorkers, startWorker, stopWorker, type Teacher,
 } from './fleet';
@@ -54,7 +56,28 @@ app.use((_req, res, next) => {
   next();
 });
 
-app.get('/api/config', (_req, res) => res.json({ auth0Domain: AUTH0_DOMAIN ?? null, auth0ClientId: AUTH0_CLIENT_ID ?? null, embedProvider: EMBED_PROVIDER }));
+app.get('/api/config', (_req, res) => res.json({ auth0Domain: AUTH0_DOMAIN ?? null, auth0ClientId: AUTH0_CLIENT_ID ?? null, embedProvider: EMBED_PROVIDER, voice: voiceEnabled() }));
+
+// Speech in (ElevenLabs Scribe). Teach mode also returns the parsed lesson; the steps are deterministic.
+app.post('/api/hear', express.raw({ type: () => true, limit: '6mb' }), wrap(async (req) => {
+  const teacher = isLocal(req) ? null : await teacherFrom(req);
+  if (!isLocal(req) && !teacher?.verified) throw Object.assign(new Error('sign in to use voice'), { status: 401 });
+  const text = await hear(req.body as Buffer, String(req.headers['content-type'] ?? 'audio/webm'));
+  return { text, lesson: req.query.mode === 'teach' ? parseSpokenLesson(text) : undefined };
+}));
+
+// Robot voices (ElevenLabs), presenter laptop only so a public tunnel can't spend the quota.
+app.get('/api/say', async (req, res) => {
+  try {
+    if (!isLocal(req)) return res.status(403).json({ error: 'presenter only' });
+    const audio = await say(String(req.query.home ?? ''), String(req.query.text ?? ''));
+    res.setHeader('content-type', 'audio/mpeg');
+    res.setHeader('cache-control', 'private, max-age=3600');
+    res.send(audio);
+  } catch (err: any) {
+    res.status(err?.status ?? 500).json({ error: String(err?.message ?? err) });
+  }
+});
 
 app.get('/api/state', wrap(async () => {
   const { homes, lessons, events } = await collections();

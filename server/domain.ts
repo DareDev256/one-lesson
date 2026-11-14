@@ -169,3 +169,55 @@ export function pathLength(points: { x: number; y: number }[]) {
   for (const p of points) { len += Math.abs(p.x - cur.x) + Math.abs(p.y - cur.y); cur = p; }
   return len + Math.abs(ROBOT_DOCK.x - cur.x) + Math.abs(ROBOT_DOCK.y - cur.y);
 }
+
+// ---------------------------------------------------------------- speech → lesson (deterministic)
+
+const OBJECT_WORDS: Record<string, ObjectType[]> = {
+  plate: ['plate'], plates: ['plate'], dish: ['plate'], dishes: ['plate', 'cup', 'bowl'],
+  cup: ['cup'], cups: ['cup'], mug: ['cup'], mugs: ['cup'], glass: ['cup'], glasses: ['cup'],
+  bowl: ['bowl'], bowls: ['bowl'],
+  knife: ['knife'], knives: ['knife'], scissors: ['scissors'],
+  pan: ['pan'], pans: ['pan'], pot: ['pan'], pots: ['pan'],
+  cleaner: ['cleaner'], bleach: ['cleaner'], spray: ['cleaner'], soap: ['cleaner'], detergent: ['cleaner'],
+};
+// Multi-word targets are matched before single words.
+const TARGET_PHRASES: [string, TargetType][] = [
+  ['high cabinet', 'high_cabinet'], ['top cabinet', 'high_cabinet'], ['upper cabinet', 'high_cabinet'], ['top shelf', 'high_cabinet'], ['high shelf', 'high_cabinet'],
+  ['low drawer', 'low_drawer'], ['bottom drawer', 'low_drawer'], ['lower drawer', 'low_drawer'], ['low cabinet', 'low_drawer'], ['bottom cabinet', 'low_drawer'],
+  ['floor bin', 'floor_bin'], ['recycling bin', 'floor_bin'],
+  ['dishwasher', 'dishwasher'], ['sink', 'sink'], ['cupboard', 'high_cabinet'], ['cabinet', 'high_cabinet'], ['drawer', 'low_drawer'],
+  ['bin', 'floor_bin'], ['trash', 'floor_bin'], ['garbage', 'floor_bin'],
+];
+
+/** Turn a spoken lesson into steps. "Kitchen tidy. Put the knife and the scissors in the bottom drawer."
+ *  → title "kitchen tidy", pick knife → low drawer, pick scissors → low drawer. Objects wait for the next
+ *  place they are told to go. Words it does not know are ignored and reported. */
+export function parseSpokenLesson(transcript: string): { title: string | null; steps: Step[]; leftover: string[] } {
+  const sentences = transcript.split(/[.!?\n]+/).map((x) => x.trim()).filter(Boolean);
+  // A short first sentence that names no object is the skill's name ("Kitchen tidy.", "Load the dishwasher.").
+  const hasObject = (t: string) => t.toLowerCase().replace(/[^a-z\s]/g, ' ').split(/\s+/).some((w) => OBJECT_WORDS[w]);
+  let title: string | null = null;
+  const named = transcript.match(/(?:this is called|call it|it'?s called|lesson(?: is)?|skill(?: is)?)[:\s]+([a-z\s']{3,40}?)(?:[.!?,]|$)/i);
+  if (named) title = named[1].trim().toLowerCase();
+  else if (sentences.length > 1 && !hasObject(sentences[0]) && sentences[0].split(/\s+/).length <= 5) title = sentences[0].toLowerCase();
+
+  const body = sentences.filter((x) => !(title && x.toLowerCase() === title)).join(' ').toLowerCase().replace(/[^a-z\s]/g, ' ');
+  const words = body.split(/\s+/).filter(Boolean);
+  const steps: Step[] = [];
+  let pending: ObjectType[] = [];
+  const leftover: string[] = [];
+  for (let i = 0; i < words.length; i++) {
+    const two = `${words[i]} ${words[i + 1] ?? ''}`;
+    const phrase = TARGET_PHRASES.find(([p]) => (p.includes(' ') ? two === p : words[i] === p));
+    if (phrase) {
+      for (const o of pending) steps.push({ action: 'pick', objectType: o }, { action: 'place', targetType: phrase[1] });
+      pending = [];
+      if (phrase[0].includes(' ')) i++;
+      continue;
+    }
+    const objs = OBJECT_WORDS[words[i]];
+    if (objs) { for (const o of objs) if (!pending.includes(o)) pending.push(o); continue; }
+  }
+  for (const o of pending) leftover.push(o);
+  return { title, steps, leftover };
+}

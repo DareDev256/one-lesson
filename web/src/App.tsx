@@ -4,6 +4,8 @@ import { Face, type Mood } from './Face';
 import { Kitchen } from './Kitchen';
 import { hit, setSound, swoosh, thud } from './sound';
 import { useFleet } from './useFleet';
+import { LINES, setVoice, speak } from './voice';
+import { Mic } from './Mic';
 
 const MAP_W = 1280, MAP_H = 820;
 const TRAVEL_MS = 450;
@@ -49,14 +51,16 @@ export default function App() {
   const [zoom, setZoom] = useState<string | null>(null);
   const [lastRun, setLastRun] = useState<Record<string, { path: any[]; key: string }>>({});
   const [error, setError] = useState<string | null>(null);
+  const [heard, setHeard] = useState<string | null>(null);
   const [sound, setSoundOn] = useState(true);
   const pid = useRef(0);
   const homesRef = useRef<Home[]>([]);
   const lessonsRef = useRef<Lesson[]>([]);
   const originRef = useRef<Record<string, string>>({});
+  const spokeRevert = useRef(false);
 
   useEffect(() => { setIdentity({ name: teacher }); }, [teacher]);
-  useEffect(() => setSound(sound), [sound]);
+  useEffect(() => { setSound(sound); setVoice(sound); }, [sound]);
 
   const pos = (homeId: string) => {
     const h = homesRef.current.find((x) => x._id === homeId);
@@ -86,14 +90,18 @@ export default function App() {
         setTimeout(() => setPulses((p) => p.filter((x) => x.id !== id)), TRAVEL_MS + 80);
       }
       setTimeout(() => {
-        if (refused) { flash(e.homeId!, 'refused', 2000); say(e.homeId!, `Blocked: ${e.rule}`, 3500); thud(); }
+        if (refused) { flash(e.homeId!, 'refused', 2000); say(e.homeId!, `Blocked: ${e.rule}`, 3500); thud(); speak(e.homeId!, LINES.refused); }
         else if (hazardous) { flash(e.homeId!, 'bad', 2000); say(e.homeId!, `Took v${d.version} from ${d.teacherName}`, 3000); hit(0.6); }
         else { flash(e.homeId!, 'happy', 2200); say(e.homeId!, `Learned "${d.title}"`, 3000); hit(1 + Math.random() * 0.2); }
       }, e.homeId === origin ? 0 : TRAVEL_MS);
     }
     if (e.type === 'ran') setLastRun((r) => ({ ...r, [e.homeId!]: { path: d.path, key: `${e.at}` } }));
     if (e.type === 'rolled_back') { setCaption(`${d.by} rolled back ${e.lessonId} and everything built on it.`); swoosh(); }
-    if (e.type === 'reverted') { flash(e.homeId!, 'ring', 1500); say(e.homeId!, d.to ? `Back to v${d.toVersion}` : 'Forgot it', 3000); }
+    if (e.type === 'reverted') {
+      flash(e.homeId!, 'ring', 1500); say(e.homeId!, d.to ? `Back to v${d.toVersion}` : 'Forgot it', 3000);
+      // Four homes revert at once; one voice says it for the room.
+      if (!spokeRevert.current) { spokeRevert.current = true; speak(e.homeId!, LINES.reverted(d.toVersion)); setTimeout(() => { spokeRevert.current = false; }, 2500); }
+    }
     if (e.type === 'forgotten') setCaption(`A teacher asked to be forgotten. ${d.ids?.length ?? 0} lessons leave the fleet.`);
     if (e.type === 'caught_up') say(e.homeId!, 'Caught up', 3000);
   }, []);
@@ -128,6 +136,9 @@ export default function App() {
       say(homeId, r.answer === 'ran' ? `${r.lesson!.title} v${r.lesson!.version}${kn ? ` · ${kn}` : ''}` : r.say.startsWith("I don't") ? "I don't know how yet" : 'Blocked here', 6000);
       setCaption(`Ask ${h?.name}: "${text}" → ${r.say}${kn ? ` ${kn.replace('knife ', 'Knife goes ')}.` : ''}`);
       if (r.answer === 'ran') flash(homeId, kn === 'knife LOW' ? 'bad' : 'happy', 1800);
+      speak(homeId, r.answer === 'ran'
+        ? LINES.ran(r.lesson!.title, r.lesson!.version, r.lesson!.teacherName, kn === 'knife LOW' ? 'low' : kn === 'knife HIGH' ? 'high' : '')
+        : r.say.startsWith("I don't") ? LINES.unknown : LINES.blockedAsk);
       setLastRun((x) => (r.run ? { ...x, [homeId]: { path: r.run.path, key: `${Date.now()}` } } : x));
     } catch (e: any) { setError(e.message); }
     setAsking(false);
@@ -260,6 +271,7 @@ export default function App() {
         </div>
         <input value={askText} onChange={(e) => setAskText(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && doAsk()} />
         <button className="primary" disabled={asking} onClick={() => doAsk()}>{asking ? 'asking…' : 'Ask'}</button>
+        <Mic mode="ask" hotkey={panel !== 'teach'} label="ask (V)" onResult={(r) => { if (r.text) { setAskText(r.text); doAsk(askHome, r.text); } }} />
         <div className="answer">
           {askOut && <><b>{fleet.homes.find((h) => h._id === askOut.homeId)?.name}:</b> {askOut.say} {askOut.run && <em>{where(askOut.run.path.map((p: any) => (p.action === 'pick' ? { action: 'pick', objectType: p.objectType } : { action: 'place', targetType: p.targetType })))}</em>} {askOut.matches?.[0] && <span className="score">top match {askOut.matches[0].score}{askOut.matches[0].blockedBy ? ` (blocked: ${askOut.matches[0].blockedBy})` : ''}</span>}</>}
           {error && <span className="err">{error}</span>}
@@ -278,6 +290,14 @@ export default function App() {
             <button className="ghost" onClick={() => setPanel(null)}>close</button>
           </div>
           {fleet.homes.find((h) => h._id === teachHome) && <Kitchen home={fleet.homes.find((h) => h._id === teachHome)!} cell={42} onPick={onPick} />}
+          <div className="drawer-row">
+            <Mic mode="teach" hotkey={panel === 'teach'} label="teach by voice (V)" onResult={(r) => {
+              setHeard(r.text);
+              if (r.lesson?.steps?.length) { setDraft(r.lesson.steps); setHeld(null); }
+              if (r.lesson?.title) setTitle(r.lesson.title);
+            }} />
+            {heard && <span className="heard">heard: “{heard}”</span>}
+          </div>
           <div className="steps">{draft.length ? draft.map((s, i) => <span key={i} className="step">{s.action === 'pick' ? `pick ${s.objectType}` : `→ ${label(s.targetType)}`}</span>) : <span className="hint">Click an object, then where it goes.</span>}</div>
           <div className="drawer-row">
             <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="name the skill" />
