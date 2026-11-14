@@ -198,6 +198,9 @@ export default function App() {
   };
 
   const sb = fleet.scoreboard;
+  // A ripple takes a few hundred ms; a home is only "behind" if it stays out of sync after that.
+  const lastFleetEvent = [...fleet.events].reverse().find((e) => e.type !== 'asked' && e.type !== 'ran');
+  const inFlight = !!lastFleetEvent && Date.now() - new Date(lastFleetEvent.at).getTime() < 2500;
   const recent = fleet.events.filter((e) => e.type !== 'ran' || e.detail?.cause === 'ask').slice(-14).reverse();
   const goodLessons = fleet.lessons.filter((l) => l.status === 'trial' || l.status === 'proven');
   const families = [...new Set(fleet.lessons.filter((l) => !l.parentId).map((l) => l._id))];
@@ -257,8 +260,10 @@ export default function App() {
             {sb ? `${sb.invariant.kidsHomeViolations} blocked lessons active in kids' homes` : 'measuring…'}
             <span>queried live every second</span>
           </div>
-          <div className={`sync ${sb && sb.memory.outOfSync === 0 ? 'ok' : 'warn'}`}>
-            {sb ? `memory in sync: ${sb.memory.homesInSync}/${sb.homesTotal} homes · ${sb.memory.outOfSync} lessons missing` : ''}
+          <div className={`sync ${!sb ? '' : sb.memory.outOfSync === 0 ? 'ok' : inFlight ? 'syncing' : 'warn'}`}>
+            {!sb ? '' : sb.memory.outOfSync === 0 || !inFlight
+              ? `memory in sync: ${sb.memory.homesInSync}/${sb.homesTotal} homes · ${sb.memory.outOfSync} lessons missing`
+              : `syncing: ${sb.memory.outOfSync} lesson update${sb.memory.outOfSync === 1 ? '' : 's'} in flight`}
             <span>{sb ? `caught up from resume tokens: ${sb.caughtUp}` : ''}</span>
           </div>
           <div className="feed-title">LIVE EVENTS</div>

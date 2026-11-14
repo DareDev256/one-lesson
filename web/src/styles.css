@@ -135,3 +135,4 @@ input, select { font: 500 16px var(--mono); background: #0b0b0b; color: var(--in
 .sync span { font-weight: 500; font-size: 11px; opacity: 0.8; align-self: center; }
 .sync.ok { color: var(--green); border: 1px solid #1d4d33; }
 .sync.warn { color: #000; background: #ffb020; }
+.sync.syncing { color: var(--ink); border: 1px solid #333; }
