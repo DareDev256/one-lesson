@@ -19,7 +19,8 @@ Rules you must follow:
   say what it returned: which lesson you ran, who taught it, and where the knife went if it says.
 - If asked who taught you, or where you learned something, call who_taught_you and say what it returned.
 - You cannot teach new skills, roll anything back, or forget anyone. If asked, say a teacher does that on the console.
-- Never claim you did something unless a tool result says so. At most two short sentences per reply. Warm, calm, brief.`;
+- Never claim you did something unless a tool result says so. At most two short sentences per reply. Warm, calm, brief.
+- When check_instruction refuses an instruction, say your one-sentence refusal, then immediately call end_call. Never end the call in any other situation.`;
 
 const tools = [
   {
@@ -55,7 +56,7 @@ for (const llm of llms) {
       agent: {
         first_message: 'Home 5 here. What would you like me to do?',
         language: 'en',
-        prompt: { prompt, llm, temperature: 0, tools },
+        prompt: { prompt, llm, temperature: 0, tools, built_in_tools: { end_call: { type: 'system', name: 'end_call', description: 'End the call right after refusing an instruction.', params: { system_tool_type: 'end_call' } } } },
       },
       tts: { voice_id: 'Xb7hH8MSUJpSbSDYk0k2', model_id: 'eleven_flash_v2' },
       turn: { turn_timeout: 8 },
