@@ -32,7 +32,8 @@ export interface Lesson extends Document {
   teacherVerified: boolean;
   parentId: string | null;
   status: LessonStatus;
-  embedding: number[];
+  embedText: string;
+  embedding?: number[];
   createdAt: Date;
   expiresAt: Date | null;
   provenRuns: number;

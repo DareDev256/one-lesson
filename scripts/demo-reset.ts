@@ -2,9 +2,8 @@
 // Six homes with generated kitchens, the two teachers, and "kitchen tidy" v1 already
 // in place so a v2 can be built on it. Everything here is created at the event.
 import { client, collections } from '../server/db';
-import { computeTags, generateLayout, HOMES, type Step } from '../server/domain';
-import { embed } from '../server/embed';
-import { lessonText } from '../server/fleet';
+import { computeTags, generateLayout, HOMES, lessonText, type Step } from '../server/domain';
+import { embed, EMBED_MODE } from '../server/embed';
 
 const { homes, teachers, lessons, runs, events, receipts } = await collections();
 await Promise.all([lessons.deleteMany({}), runs.deleteMany({}), events.deleteMany({}), receipts.deleteMany({}), teachers.deleteMany({})]);
@@ -20,11 +19,12 @@ const tidySteps: Step[] = [
   { action: 'pick', objectType: 'knife' }, { action: 'place', targetType: 'high_cabinet' },
   { action: 'pick', objectType: 'scissors' }, { action: 'place', targetType: 'high_cabinet' },
 ];
-const [embedding] = await embed([lessonText('kitchen tidy', tidySteps)], 'document');
+const embedText = lessonText('kitchen tidy', tidySteps);
+const embedding = EMBED_MODE === 'local' ? (await embed([embedText], 'document'))[0] : undefined;
 const v1 = {
   _id: 'kitchen-tidy@v1', skillKey: 'kitchen-tidy', version: 1, title: 'kitchen tidy', steps: tidySteps,
   tags: computeTags(tidySteps), teacherId: JAMES.id, teacherName: JAMES.name, teacherVerified: JAMES.verified,
-  parentId: null, status: 'proven' as const, embedding, createdAt: new Date(), expiresAt: null, provenRuns: 3,
+  parentId: null, status: 'proven' as const, embedText, ...(embedding ? { embedding } : {}), createdAt: new Date(), expiresAt: null, provenRuns: 3,
 };
 await lessons.insertOne(v1);
 

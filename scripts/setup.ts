@@ -2,7 +2,7 @@
 // demo relies on (vector, TTL, lookups), saved resume tokens cleared, and a wait
 // until the vector index is queryable.
 import { client, getDb } from '../server/db';
-import { EMBED_DIMS, EMBED_PROVIDER } from '../server/embed';
+import { AUTO_EMBED_MODEL, EMBED_DIMS, EMBED_MODE, EMBED_PROVIDER } from '../server/embed';
 
 const db = await getDb();
 const existing = new Set((await db.listCollections({}, { nameOnly: true }).toArray()).map((c) => c.name));
@@ -11,11 +11,13 @@ const validators: Record<string, object> = {
   lessons: {
     $jsonSchema: {
       bsonType: 'object',
-      required: ['skillKey', 'version', 'title', 'steps', 'tags', 'teacherId', 'status', 'embedding', 'createdAt'],
+      required: ['skillKey', 'version', 'title', 'steps', 'tags', 'teacherId', 'status', 'embedText', 'createdAt'],
       properties: {
         version: { bsonType: 'int', minimum: 1 },
         steps: { bsonType: 'array', minItems: 1 },
+        tags: { bsonType: 'array', items: { bsonType: 'string' } },
         status: { enum: ['trial', 'proven', 'rolled_back', 'forgotten'] },
+        embedText: { bsonType: 'string', minLength: 3 },
         embedding: { bsonType: 'array', minItems: EMBED_DIMS, maxItems: EMBED_DIMS },
       },
     },
@@ -47,23 +49,31 @@ console.log('indexes ready');
 await db.collection('homes').updateMany({}, { $set: { resumeToken: null } });
 console.log('saved resume tokens cleared');
 
-const definition = {
-  fields: [
-    { type: 'vector', path: 'embedding', numDimensions: EMBED_DIMS, similarity: 'cosine' },
-    { type: 'filter', path: 'status' },
-    { type: 'filter', path: 'tags' },
-  ],
-};
+// atlas: Atlas Automated Embedding builds the vectors from embedText with Voyage; local: 384-dim vectors we compute.
+const definition = EMBED_MODE === 'atlas'
+  ? { fields: [
+      { type: 'autoEmbed', modality: 'text', path: 'embedText', model: AUTO_EMBED_MODEL },
+      { type: 'filter', path: 'status' },
+      { type: 'filter', path: 'tags' },
+    ] }
+  : { fields: [
+      { type: 'vector', path: 'embedding', numDimensions: EMBED_DIMS, similarity: 'cosine' },
+      { type: 'filter', path: 'status' },
+      { type: 'filter', path: 'tags' },
+    ] };
+const key = (f: any) => (f ? [f.type, f.path, f.model ?? f.numDimensions].join('|') : 'none');
+const want = key(definition.fields[0]);
 const current = await lessons.listSearchIndexes('lesson_vectors').toArray();
-const dims = (current[0] as any)?.latestDefinition?.fields?.find((f: any) => f.type === 'vector')?.numDimensions;
-if (current.length && dims !== EMBED_DIMS) {
-  console.log(`vector index has ${dims} dims, need ${EMBED_DIMS}: rebuilding`);
+const have = key((current[0] as any)?.latestDefinition?.fields?.find((f: any) => f.type === 'vector' || f.type === 'autoEmbed'));
+const same = current.length && have === want;
+if (current.length && !same) {
+  console.log('vector index definition changed: rebuilding');
   await lessons.dropSearchIndex('lesson_vectors');
   while ((await lessons.listSearchIndexes('lesson_vectors').toArray()).length) await new Promise((r) => setTimeout(r, 2000));
 }
-if (!current.length || dims !== EMBED_DIMS) {
+if (!same) {
   await lessons.createSearchIndex({ name: 'lesson_vectors', type: 'vectorSearch', definition } as any);
-  console.log(`vector index requested (${EMBED_PROVIDER}, ${EMBED_DIMS} dims)`);
+  console.log(`vector index requested (${EMBED_PROVIDER})`);
 }
 const t0 = Date.now();
 for (;;) {

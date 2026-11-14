@@ -2,8 +2,8 @@
 // lineage with $graphLookup, rollback and forget in transactions, and the scoreboard.
 import type { ChangeStream, ChangeStreamDocument } from 'mongodb';
 import { client, collections, GOOD_STATUSES, type FleetEvent, type Home, type Lesson } from './db';
-import { adaptToLayout, blockingRule, computeTags, describeSteps, pathLength, validateSteps, type Step } from './domain';
-import { embed } from './embed';
+import { adaptToLayout, blockingRule, computeTags, describeSteps, lessonText, pathLength, validateSteps } from './domain';
+import { embed, EMBED_MODE, RERANK_MODEL } from './embed';
 
 export interface Teacher { id: string; name: string; verified: boolean }
 
@@ -29,14 +29,10 @@ async function pushHome(homeId: string) {
 const TRIAL_MS = 24 * 60 * 60 * 1000;
 const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40);
 
-export function lessonText(title: string, steps: Step[]) {
-  return `${title}. ${describeSteps(steps)}`;
-}
-
 // ---------------------------------------------------------------- publish
 
 export async function publish(input: {
-  steps: unknown; title?: string; skillKey?: string; parentId?: string | null; teacher: Teacher; trialSeconds?: number;
+  steps: unknown; title?: string; skillKey?: string; parentId?: string | null; teacher: Teacher; trialSeconds?: number; originHomeId?: string;
 }) {
   const { lessons, teachers } = await collections();
   const steps = validateSteps(input.steps);
@@ -51,13 +47,16 @@ export async function publish(input: {
   let parent: Lesson | null = null;
   if (input.parentId) parent = await lessons.findOne({ _id: input.parentId });
   const title = (input.title?.trim() || parent?.title || describeSteps(steps)).slice(0, 80);
-  const skillKey = parent && !input.skillKey ? parent.skillKey : input.skillKey || slug(title);
+  // A lesson built on a parent with a new name is a new skill in the same family tree (e.g. "evening reset" on kitchen tidy v2).
+  const sameSkill = parent && (!input.title?.trim() || slug(input.title) === slug(parent.title));
+  const skillKey = input.skillKey || (sameSkill ? parent!.skillKey : slug(title));
   if (!parent && input.parentId === undefined) {
     parent = await lessons.findOne({ skillKey, status: { $in: GOOD_STATUSES } }, { sort: { version: -1 } });
   }
   const last = await lessons.findOne({ skillKey }, { sort: { version: -1 } });
   const version = (last?.version ?? 0) + 1;
-  const [embedding] = await embed([lessonText(title, steps)], 'document');
+  const embedText = lessonText(title, steps);
+  const embedding = EMBED_MODE === 'local' ? (await embed([embedText], 'document'))[0] : undefined;
   const now = new Date();
   const lesson: Lesson = {
     _id: `${skillKey}@v${version}`,
@@ -65,13 +64,13 @@ export async function publish(input: {
     tags: computeTags(steps),
     teacherId: input.teacher.id, teacherName: input.teacher.name, teacherVerified: input.teacher.verified,
     parentId: parent?._id ?? null,
-    status: 'trial', embedding, createdAt: now,
+    status: 'trial', embedText, ...(embedding ? { embedding } : {}), createdAt: now,
     expiresAt: new Date(now.getTime() + (input.trialSeconds ? input.trialSeconds * 1000 : TRIAL_MS)),
     provenRuns: 0,
   };
   await lessons.insertOne(lesson);
-  await emit({ type: 'published', lessonId: lesson._id, teacherId: lesson.teacherId, detail: { title, version, tags: lesson.tags, teacherName: lesson.teacherName, verified: lesson.teacherVerified, parentId: lesson.parentId } });
-  const { embedding: _e, ...rest } = lesson;
+  await emit({ type: 'published', lessonId: lesson._id, teacherId: lesson.teacherId, detail: { title, version, tags: lesson.tags, teacherName: lesson.teacherName, verified: lesson.teacherVerified, parentId: lesson.parentId, originHomeId: input.originHomeId } });
+  const { embedding: _e, ...rest } = lesson as Lesson & { embedding?: number[] };
   return rest;
 }
 
@@ -204,22 +203,44 @@ export async function stopAllWorkers() {
 
 // ---------------------------------------------------------------- ask (Vector Search under each home's rules)
 
-export const MATCH_FLOOR = Number(process.env.MATCH_FLOOR ?? 0.74);
+// Measured with scripts/tune-match.ts on the local model: "put the dishes away" scores
+// 0.727 on "load the dishwasher" and 0.667 on "kitchen tidy". Re-tune if the model changes.
+// Measured floors. atlas: rerank-3 scores (scripts/probe-rerank.ts) put "put the dishes away" at 0.649 on
+// "load the dishwasher", 0.545 on the next lesson, and "make me a sandwich" at 0.318 at most.
+// local: all-MiniLM cosine-derived scores (scripts/tune-match.ts) put it at 0.727 vs 0.667.
+export const MATCH_FLOOR = Number(process.env.MATCH_FLOOR ?? (EMBED_MODE === 'atlas' ? 0.6 : 0.7));
+// Atlas builds auto-embeddings asynchronously (measured ~1.9 s from insert to searchable).
+const INDEX_LAG_MS = Number(process.env.INDEX_LAG_MS ?? 3000);
 
 export async function ask(homeId: string, text: string) {
   const { homes, lessons } = await collections();
   const home = await homes.findOne({ _id: homeId });
   if (!home) throw new Error(`no home ${homeId}`);
-  const [queryVector] = await embed([text], 'query');
+  const newest = await lessons.findOne({}, { sort: { createdAt: -1 }, projection: { createdAt: 1 } });
+  const wait = newest ? INDEX_LAG_MS - (Date.now() - newest.createdAt.getTime()) : 0;
+  if (wait > 0) await new Promise((r) => setTimeout(r, wait));
   const blocked = home.blockedTags;
-  const pipeline: any[] = [
-    { $vectorSearch: { index: 'lesson_vectors', path: 'embedding', queryVector, numCandidates: 100, limit: 10, filter: { status: { $in: GOOD_STATUSES } } } },
-    { $project: { embedding: 0 } },
-    { $addFields: { score: { $meta: 'vectorSearchScore' } } },
-  ];
-  const all = (await lessons.aggregate(pipeline).toArray()) as (Lesson & { score: number })[];
+  const filter = { status: { $in: GOOD_STATUSES } };
+  const pipeline: any[] = EMBED_MODE === 'atlas'
+    ? [
+        { $vectorSearch: { index: 'lesson_vectors', path: 'embedText', query: text, numCandidates: 100, limit: 10, filter } },
+        { $addFields: { vectorScore: { $meta: 'vectorSearchScore' } } },
+        // The index filter can trail a status change by a second or two; the document itself is the truth.
+        { $match: filter },
+        { $rerank: { query: { text }, path: 'embedText', numDocsToRerank: 10, model: RERANK_MODEL } },
+        { $addFields: { score: { $meta: 'score' } } },
+        { $project: { embedding: 0 } },
+      ]
+    : [
+        { $vectorSearch: { index: 'lesson_vectors', path: 'embedding', queryVector: (await embed([text], 'query'))[0], numCandidates: 100, limit: 10, filter } },
+        { $addFields: { score: { $meta: 'vectorSearchScore' } } },
+        { $match: filter },
+        { $project: { embedding: 0 } },
+      ];
+  const all = (await lessons.aggregate(pipeline).toArray()) as (Lesson & { score: number; vectorScore?: number })[];
   const matches = all.map((l) => ({
     id: l._id, title: l.title, skillKey: l.skillKey, version: l.version, score: Number(l.score.toFixed(3)),
+    vectorScore: l.vectorScore != null ? Number(l.vectorScore.toFixed(3)) : undefined,
     blockedBy: blockingRule(l.tags, blocked), active: home.activeLessons?.[l.skillKey] === l._id,
   }));
   // The home's own rules drop lessons it may not use; then it runs the version it has active for that skill.
@@ -263,7 +284,7 @@ export async function lineage(lessonId: string) {
     { $match: { _id: root } },
     { $graphLookup: { from: 'lessons', startWith: '$_id', connectFromField: '_id', connectToField: 'parentId', as: 'descendants', depthField: 'depth' } },
   ]).toArray();
-  const nodes = [tree[0], ...(tree[0].descendants as any[])].map(({ embedding, descendants, ...n }: any) => n);
+  const nodes = [tree[0], ...(tree[0].descendants as any[])].map(({ embedding, embedText, descendants, ...n }: any) => n);
   const ids = nodes.map((n) => n._id);
   const reach = await events.aggregate([
     { $match: { lessonId: { $in: ids }, type: { $in: ['delivered', 'refused', 'ran', 'reverted'] } } },

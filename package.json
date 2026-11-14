@@ -15,7 +15,8 @@
     "start": "tsx server/index.ts",
     "web:dev": "vite --config web/vite.config.ts",
     "build": "vite build --config web/vite.config.ts",
-    "test": "vitest run"
+    "test": "vitest run",
+    "smoke": "tsx scripts/smoke.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^1.8.0",

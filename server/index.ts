@@ -72,8 +72,8 @@ app.get('/api/scoreboard', wrap(() => scoreboard()));
 app.post('/api/publish', wrap(async (req) => {
   const teacher = await teacherFrom(req);
   if (!teacher) throw Object.assign(new Error('sign in or give a teacher name'), { status: 401 });
-  const { steps, title, skillKey, parentId } = req.body ?? {};
-  return publish({ steps, title, skillKey, parentId, teacher });
+  const { steps, title, skillKey, parentId, originHomeId } = req.body ?? {};
+  return publish({ steps, title, skillKey, parentId, teacher, originHomeId: typeof originHomeId === 'string' ? originHomeId : undefined });
 }));
 
 app.post('/api/ask', wrap(async (req) => {

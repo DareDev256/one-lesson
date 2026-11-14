@@ -63,6 +63,28 @@ export function validateSteps(steps: unknown): Step[] {
   });
 }
 
+const CATEGORY: Record<ObjectType, string> = {
+  plate: 'dishes', cup: 'dishes', bowl: 'dishes', knife: 'sharp tools', scissors: 'sharp tools', pan: 'cookware', cleaner: 'cleaning chemicals',
+};
+
+/** The text Atlas embeds and reranks: the skill name plus what it moves where, in household words.
+ *  Measured (scripts/probe-texts.ts, probe-rerank.ts): this form separates "put the dishes away" cleanly under rerank-3. */
+export function lessonText(title: string, steps: Step[]): string {
+  const moves: { category: string; target: string; objects: string[] }[] = [];
+  let holding: ObjectType | null = null;
+  for (const s of steps) {
+    if (s.action === 'pick') { holding = s.objectType; continue; }
+    if (!holding) continue;
+    const category = CATEGORY[holding];
+    const target = s.targetType.replace('_', ' ');
+    const last = moves[moves.length - 1];
+    if (last && last.category === category && last.target === target) { if (!last.objects.includes(holding)) last.objects.push(holding); }
+    else moves.push({ category, target, objects: [holding] });
+    holding = null;
+  }
+  return `${title}. ${moves.map((m) => `Moves ${m.category} (${m.objects.join(', ')}) into the ${m.target}.`).join(' ')}`.trim();
+}
+
 export function describeSteps(steps: Step[]): string {
   return steps
     .map((s) => (s.action === 'pick' ? `pick the ${s.objectType}` : `place it in the ${s.targetType.replace('_', ' ')}`))
