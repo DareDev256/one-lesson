@@ -6,6 +6,8 @@ One Lesson is a governed skill memory for a fleet of home robots, built on Mongo
 
 Track: **Memory You Can Govern**. Built at *Agents in Context Toronto* (MongoDB hackathon), 14 November 2026.
 
+**Watch the 60-second demo: [onelesson.jamesdare.com](https://onelesson.jamesdare.com)**
+
 ![Same words, two kitchens: Home 2's robot carries the knife down to the low drawer, Home 5's (a kids' home) carries it up to the high cabinet](docs/two-kitchens.gif)
 
 ![Bad lesson: four homes took it (red), the two kids' homes refused it at their shields](docs/screenshots/2026-11-14_beats-4-bad-settled.png)
