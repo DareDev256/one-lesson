@@ -136,3 +136,4 @@ input, select { font: 500 16px var(--mono); background: #0b0b0b; color: var(--in
 .sync.ok { color: var(--green); border: 1px solid #1d4d33; }
 .sync.warn { color: #000; background: #ffb020; }
 .sync.syncing { color: var(--ink); border: 1px solid #333; }
+@media (max-width: 1600px) { .stage { grid-template-columns: 1fr 440px; } .num .big { font-size: 30px; } .drawer, .drawer.lineage { width: 460px; } }
