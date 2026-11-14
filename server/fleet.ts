@@ -1,0 +1,385 @@
+// The fleet: publish, six home workers on change streams, Ask with Vector Search,
+// lineage with $graphLookup, rollback and forget in transactions, and the scoreboard.
+import type { ChangeStream, ChangeStreamDocument } from 'mongodb';
+import { client, collections, GOOD_STATUSES, type FleetEvent, type Home, type Lesson } from './db';
+import { adaptToLayout, blockingRule, computeTags, describeSteps, pathLength, validateSteps, type Step } from './domain';
+import { embed } from './embed';
+
+export interface Teacher { id: string; name: string; verified: boolean }
+
+type Listener = (msg: unknown) => void;
+const listeners = new Set<Listener>();
+export function onBroadcast(fn: Listener) { listeners.add(fn); return () => listeners.delete(fn); }
+function broadcast(msg: unknown) { for (const fn of listeners) fn(msg); }
+
+export async function emit(e: Omit<FleetEvent, 'at'> & { at?: Date }) {
+  const { events } = await collections();
+  const doc = { ...e, at: e.at ?? new Date() } as FleetEvent;
+  await events.insertOne(doc);
+  broadcast({ kind: 'event', event: doc });
+  return doc;
+}
+
+async function pushHome(homeId: string) {
+  const { homes } = await collections();
+  const h = await homes.findOne({ _id: homeId }, { projection: { resumeToken: 0 } });
+  if (h) broadcast({ kind: 'home', home: h });
+}
+
+const TRIAL_MS = 24 * 60 * 60 * 1000;
+const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40);
+
+export function lessonText(title: string, steps: Step[]) {
+  return `${title}. ${describeSteps(steps)}`;
+}
+
+// ---------------------------------------------------------------- publish
+
+export async function publish(input: {
+  steps: unknown; title?: string; skillKey?: string; parentId?: string | null; teacher: Teacher; trialSeconds?: number;
+}) {
+  const { lessons, teachers } = await collections();
+  const steps = validateSteps(input.steps);
+  const t = await teachers.findOne({ _id: input.teacher.id as any });
+  if (t?.forgottenAt) throw new Error('this teacher has been forgotten');
+  await teachers.updateOne(
+    { _id: input.teacher.id as any },
+    { $set: { name: input.teacher.name, verified: input.teacher.verified }, $setOnInsert: { forgottenAt: null } },
+    { upsert: true },
+  );
+
+  let parent: Lesson | null = null;
+  if (input.parentId) parent = await lessons.findOne({ _id: input.parentId });
+  const title = (input.title?.trim() || parent?.title || describeSteps(steps)).slice(0, 80);
+  const skillKey = parent && !input.skillKey ? parent.skillKey : input.skillKey || slug(title);
+  if (!parent && input.parentId === undefined) {
+    parent = await lessons.findOne({ skillKey, status: { $in: GOOD_STATUSES } }, { sort: { version: -1 } });
+  }
+  const last = await lessons.findOne({ skillKey }, { sort: { version: -1 } });
+  const version = (last?.version ?? 0) + 1;
+  const [embedding] = await embed([lessonText(title, steps)], 'document');
+  const now = new Date();
+  const lesson: Lesson = {
+    _id: `${skillKey}@v${version}`,
+    skillKey, version, title, steps,
+    tags: computeTags(steps),
+    teacherId: input.teacher.id, teacherName: input.teacher.name, teacherVerified: input.teacher.verified,
+    parentId: parent?._id ?? null,
+    status: 'trial', embedding, createdAt: now,
+    expiresAt: new Date(now.getTime() + (input.trialSeconds ? input.trialSeconds * 1000 : TRIAL_MS)),
+    provenRuns: 0,
+  };
+  await lessons.insertOne(lesson);
+  await emit({ type: 'published', lessonId: lesson._id, teacherId: lesson.teacherId, detail: { title, version, tags: lesson.tags, teacherName: lesson.teacherName, verified: lesson.teacherVerified, parentId: lesson.parentId } });
+  const { embedding: _e, ...rest } = lesson;
+  return rest;
+}
+
+// ---------------------------------------------------------------- home workers
+
+function simulateRun(home: Home, lesson: Lesson) {
+  const adapted = adaptToLayout(lesson.steps, home.layout as any);
+  const ms = pathLength(adapted) * 120;
+  return { adapted, ms };
+}
+
+async function runLesson(home: Home, lesson: Lesson, cause: 'ripple' | 'ask') {
+  const { runs, lessons } = await collections();
+  const startedAt = new Date();
+  const { adapted, ms } = simulateRun(home, lesson);
+  const run = { homeId: home._id, lessonId: lesson._id, cause, startedAt, endedAt: new Date(startedAt.getTime() + ms), outcome: 'ok', ms, path: adapted };
+  await runs.insertOne(run);
+  await emit({ type: 'ran', homeId: home._id, lessonId: lesson._id, teacherId: lesson.teacherId, detail: { cause, ms, path: adapted, title: lesson.title, version: lesson.version, teacherName: lesson.teacherName } });
+  if (cause === 'ask') {
+    // Only real requests count toward proving a lesson. Three proven runs end the trial.
+    const r = await lessons.findOneAndUpdate({ _id: lesson._id }, { $inc: { provenRuns: 1 } }, { returnDocument: 'after' });
+    if (r && r.status === 'trial' && r.provenRuns >= 3) {
+      await lessons.updateOne({ _id: lesson._id, status: 'trial' }, { $set: { status: 'proven', expiresAt: null } });
+    }
+  }
+  return run;
+}
+
+/** Newest good version of a skill that this home's rules allow. */
+async function bestAllowed(home: Home, skillKey: string) {
+  const { lessons } = await collections();
+  const cands = await lessons.find({ skillKey, status: { $in: GOOD_STATUSES } }).sort({ version: -1 }).toArray();
+  return cands.find((l) => !blockingRule(l.tags, home.blockedTags)) ?? null;
+}
+
+const workers = new Map<string, { stream: ChangeStream<Lesson>; startedAt: Date }>();
+
+async function handleChange(homeId: string, change: ChangeStreamDocument<Lesson>, startedAt: Date) {
+  const { homes } = await collections();
+  const home = await homes.findOne({ _id: homeId });
+  if (!home) return;
+  const wall = (change as any).wallTime as Date | undefined;
+  const catchingUp = !!wall && wall < startedAt;
+
+  if (change.operationType === 'insert') {
+    const lesson = change.fullDocument;
+    if (!GOOD_STATUSES.includes(lesson.status)) return;
+    const rule = blockingRule(lesson.tags, home.blockedTags);
+    if (catchingUp) await emit({ type: 'caught_up', homeId, lessonId: lesson._id });
+    if (rule) {
+      await emit({ type: 'refused', homeId, lessonId: lesson._id, teacherId: lesson.teacherId, rule, detail: { title: lesson.title, version: lesson.version, teacherName: lesson.teacherName } });
+      return;
+    }
+    const currentId = home.activeLessons?.[lesson.skillKey];
+    const current = currentId ? await (await collections()).lessons.findOne({ _id: currentId }) : null;
+    if (current && current.version > lesson.version && GOOD_STATUSES.includes(current.status)) return;
+    await homes.updateOne({ _id: homeId }, { $set: { [`activeLessons.${lesson.skillKey}`]: lesson._id } });
+    await emit({ type: 'delivered', homeId, lessonId: lesson._id, teacherId: lesson.teacherId, detail: { title: lesson.title, version: lesson.version, teacherName: lesson.teacherName, verified: lesson.teacherVerified } });
+    await pushHome(homeId);
+    await runLesson({ ...home, activeLessons: { ...home.activeLessons, [lesson.skillKey]: lesson._id } }, lesson, 'ripple');
+    return;
+  }
+
+  if (change.operationType === 'update' || change.operationType === 'replace') {
+    const lesson = change.fullDocument;
+    if (!lesson || GOOD_STATUSES.includes(lesson.status)) return;
+    if (home.activeLessons?.[lesson.skillKey] !== lesson._id) return;
+    if (catchingUp) await emit({ type: 'caught_up', homeId, lessonId: lesson._id });
+    const fallback = await bestAllowed(home, lesson.skillKey);
+    if (fallback) await homes.updateOne({ _id: homeId }, { $set: { [`activeLessons.${lesson.skillKey}`]: fallback._id } });
+    else await homes.updateOne({ _id: homeId }, { $unset: { [`activeLessons.${lesson.skillKey}`]: '' } });
+    await emit({ type: 'reverted', homeId, lessonId: lesson._id, detail: { from: lesson._id, to: fallback?._id ?? null, toTitle: fallback?.title ?? null, toVersion: fallback?.version ?? null, reason: lesson.status } });
+    await pushHome(homeId);
+    if (fallback) await runLesson(home, fallback, 'ripple');
+  }
+}
+
+export async function startWorker(homeId: string) {
+  if (workers.has(homeId)) return;
+  const { homes, lessons } = await collections();
+  const home = await homes.findOne({ _id: homeId });
+  if (!home) throw new Error(`no home ${homeId}`);
+  const pipeline = [
+    { $match: { $or: [{ operationType: 'insert' }, { operationType: 'update', 'updateDescription.updatedFields.status': { $exists: true } }] } },
+  ];
+  const opts: any = { fullDocument: 'updateLookup' };
+  if (home.resumeToken) opts.resumeAfter = home.resumeToken;
+  const stream = lessons.watch<Lesson>(pipeline, opts);
+  const startedAt = new Date();
+  workers.set(homeId, { stream, startedAt });
+  await homes.updateOne({ _id: homeId }, { $set: { online: true } });
+  await pushHome(homeId);
+  (async () => {
+    try {
+      for await (const change of stream) {
+        try {
+          await handleChange(homeId, change, startedAt);
+        } catch (err) {
+          console.error(`[${homeId}]`, err);
+        }
+        // Save the resume token after every event: a restart replays from here.
+        await homes.updateOne({ _id: homeId }, { $set: { resumeToken: change._id } });
+      }
+    } catch (err: any) {
+      if (!String(err?.message).includes('closed')) console.error(`[${homeId}] stream ended`, err?.message);
+    }
+  })();
+}
+
+export async function stopWorker(homeId: string) {
+  const w = workers.get(homeId);
+  if (!w) return;
+  workers.delete(homeId);
+  await w.stream.close();
+  const { homes } = await collections();
+  await homes.updateOne({ _id: homeId }, { $set: { online: false } });
+  await pushHome(homeId);
+}
+
+export async function startAllWorkers() {
+  const { homes } = await collections();
+  const all = await homes.find({}, { projection: { _id: 1 } }).toArray();
+  await Promise.all(all.map((h) => startWorker(h._id)));
+  return all.length;
+}
+
+export async function stopAllWorkers() {
+  await Promise.all([...workers.keys()].map(stopWorker));
+}
+
+// ---------------------------------------------------------------- ask (Vector Search under each home's rules)
+
+export const MATCH_FLOOR = Number(process.env.MATCH_FLOOR ?? 0.74);
+
+export async function ask(homeId: string, text: string) {
+  const { homes, lessons } = await collections();
+  const home = await homes.findOne({ _id: homeId });
+  if (!home) throw new Error(`no home ${homeId}`);
+  const [queryVector] = await embed([text], 'query');
+  const blocked = home.blockedTags;
+  const pipeline: any[] = [
+    { $vectorSearch: { index: 'lesson_vectors', path: 'embedding', queryVector, numCandidates: 100, limit: 10, filter: { status: { $in: GOOD_STATUSES } } } },
+    { $project: { embedding: 0 } },
+    { $addFields: { score: { $meta: 'vectorSearchScore' } } },
+  ];
+  const all = (await lessons.aggregate(pipeline).toArray()) as (Lesson & { score: number })[];
+  const matches = all.map((l) => ({
+    id: l._id, title: l.title, skillKey: l.skillKey, version: l.version, score: Number(l.score.toFixed(3)),
+    blockedBy: blockingRule(l.tags, blocked), active: home.activeLessons?.[l.skillKey] === l._id,
+  }));
+  // The home's own rules drop lessons it may not use; then it runs the version it has active for that skill.
+  const allowed = all.filter((l) => !blockingRule(l.tags, blocked) && l.score >= MATCH_FLOOR);
+  const skill = allowed.find((l) => home.activeLessons?.[l.skillKey]);
+  await emit({ type: 'asked', homeId, detail: { text, top: matches.slice(0, 3) } });
+  if (!skill) {
+    const refused = all.find((l) => blockingRule(l.tags, blocked) && l.score >= MATCH_FLOOR);
+    return {
+      homeId, text, answer: 'unknown' as const,
+      say: refused
+        ? `I won't do that here: "${refused.title}" is blocked by this home's rule (${blockingRule(refused.tags, blocked)}).`
+        : "I don't know how to do that yet.",
+      matches,
+    };
+  }
+  const lesson = await lessons.findOne({ _id: home.activeLessons[skill.skillKey] });
+  if (!lesson) throw new Error('active lesson missing');
+  const run = await runLesson(home, lesson, 'ask');
+  return {
+    homeId, text, answer: 'ran' as const,
+    say: `Doing "${lesson.title}" v${lesson.version} (taught by ${lesson.teacherName}).`,
+    lesson: { id: lesson._id, title: lesson.title, version: lesson.version, teacherName: lesson.teacherName, tags: lesson.tags },
+    run: { ms: run.ms, path: run.path },
+    matches,
+  };
+}
+
+// ---------------------------------------------------------------- lineage ($graphLookup)
+
+export async function lineage(lessonId: string) {
+  const { lessons, events } = await collections();
+  const up = await lessons.aggregate([
+    { $match: { _id: lessonId } },
+    { $graphLookup: { from: 'lessons', startWith: '$parentId', connectFromField: 'parentId', connectToField: '_id', as: 'ancestors' } },
+    { $project: { ancestors: { _id: 1, parentId: 1 } } },
+  ]).toArray();
+  if (!up.length) throw new Error('no such lesson');
+  const root = (up[0].ancestors as any[]).find((a) => !a.parentId)?._id ?? lessonId;
+  const tree = await lessons.aggregate([
+    { $match: { _id: root } },
+    { $graphLookup: { from: 'lessons', startWith: '$_id', connectFromField: '_id', connectToField: 'parentId', as: 'descendants', depthField: 'depth' } },
+  ]).toArray();
+  const nodes = [tree[0], ...(tree[0].descendants as any[])].map(({ embedding, descendants, ...n }: any) => n);
+  const ids = nodes.map((n) => n._id);
+  const reach = await events.aggregate([
+    { $match: { lessonId: { $in: ids }, type: { $in: ['delivered', 'refused', 'ran', 'reverted'] } } },
+    { $group: { _id: { lessonId: '$lessonId', type: '$type' }, homes: { $addToSet: '$homeId' } } },
+  ]).toArray();
+  for (const n of nodes) {
+    n.homes = {};
+    for (const r of reach) if (r._id.lessonId === n._id) n.homes[r._id.type] = (r.homes as string[]).sort();
+  }
+  return { root, nodes };
+}
+
+// ---------------------------------------------------------------- rollback + forget (transactions)
+
+export async function rollback(lessonId: string, actor: Teacher, allowed: (t: Teacher) => boolean) {
+  if (!allowed(actor)) throw Object.assign(new Error(`${actor.name} is not allowed to roll back lessons`), { status: 403 });
+  const { lessons, receipts } = await collections();
+  const found = await lessons.aggregate([
+    { $match: { _id: lessonId } },
+    { $graphLookup: { from: 'lessons', startWith: '$_id', connectFromField: '_id', connectToField: 'parentId', as: 'descendants' } },
+    { $project: { ids: { $concatArrays: [['$_id'], '$descendants._id'] } } },
+  ]).toArray();
+  if (!found.length) throw new Error('no such lesson');
+  const ids: string[] = found[0].ids;
+  const startedAt = new Date();
+  const session = client.startSession();
+  let receiptId: unknown;
+  try {
+    await session.withTransaction(async () => {
+      await lessons.updateMany({ _id: { $in: ids }, status: { $in: GOOD_STATUSES } }, { $set: { status: 'rolled_back', expiresAt: null } }, { session });
+      const r = await receipts.insertOne({ type: 'rollback', by: actor, lessonIds: ids, startedAt }, { session });
+      receiptId = r.insertedId;
+    });
+  } finally {
+    await session.endSession();
+  }
+  await emit({ type: 'rolled_back', lessonId, teacherId: actor.id, detail: { ids, by: actor.name, receiptId } });
+  return { receiptId, ids, startedAt };
+}
+
+export async function forgetTeacher(teacherId: string, actor: Teacher) {
+  if (actor.id !== teacherId) throw Object.assign(new Error('you can only forget yourself'), { status: 403 });
+  const { lessons, teachers, receipts, events } = await collections();
+  const taught = await lessons.find({ teacherId, status: { $in: GOOD_STATUSES } }, { projection: { _id: 1 } }).toArray();
+  const ids = taught.map((l) => l._id);
+  const homesHolding = await events.distinct('homeId', { lessonId: { $in: ids }, type: 'delivered' });
+  const session = client.startSession();
+  let receiptId: unknown;
+  try {
+    await session.withTransaction(async () => {
+      await lessons.updateMany({ _id: { $in: ids } }, { $set: { status: 'forgotten', expiresAt: null } }, { session });
+      await teachers.updateOne({ _id: teacherId as any }, { $set: { forgottenAt: new Date() } }, { session });
+      const r = await receipts.insertOne({ type: 'forget', by: actor, lessonIds: ids, homes: homesHolding, startedAt: new Date() }, { session });
+      receiptId = r.insertedId;
+    });
+  } finally {
+    await session.endSession();
+  }
+  await emit({ type: 'forgotten', teacherId, detail: { ids, homes: homesHolding, by: actor.name, receiptId } });
+  return { receiptId, lessonIds: ids, homes: homesHolding };
+}
+
+// ---------------------------------------------------------------- scoreboard (measured, never typed)
+
+export async function scoreboard() {
+  const { homes, lessons, events, receipts, runs } = await collections();
+  const allHomes = await homes.find({}, { projection: { resumeToken: 0, layout: 0 } }).toArray();
+  const kidHomes = allHomes.filter((h) => h.hasKids);
+
+  // Live invariant: no lesson a kids' home blocks is active in that home.
+  let violations = 0;
+  for (const h of kidHomes) {
+    const active = Object.values(h.activeLessons ?? {});
+    if (!active.length) continue;
+    violations += await lessons.countDocuments({ _id: { $in: active }, tags: { $in: h.blockedTags }, status: { $in: GOOD_STATUSES } });
+  }
+
+  const lastPub = await events.findOne({ type: 'published' }, { sort: { at: -1 } });
+  let ripple = null;
+  if (lastPub) {
+    const evs = await events.find({ lessonId: lastPub.lessonId, type: { $in: ['delivered', 'refused'] } }).toArray();
+    const delivered = evs.filter((e) => e.type === 'delivered');
+    const lastAt = Math.max(...evs.map((e) => e.at.getTime()), lastPub.at.getTime());
+    ripple = {
+      lessonId: lastPub.lessonId, delivered: delivered.length, refused: evs.length - delivered.length,
+      homesHeard: evs.length, ms: evs.length ? lastAt - lastPub.at.getTime() : null,
+    };
+  }
+
+  const lastRb = await receipts.findOne({ type: 'rollback' }, { sort: { startedAt: -1 } });
+  let lastRollback = null;
+  if (lastRb) {
+    const rev = await events.find({ type: 'reverted', lessonId: { $in: lastRb.lessonIds }, at: { $gte: lastRb.startedAt } }).toArray();
+    lastRollback = {
+      homes: new Set(rev.map((e) => e.homeId)).size,
+      ms: rev.length ? Math.max(...rev.map((e) => e.at.getTime())) - lastRb.startedAt.getTime() : null,
+    };
+  }
+
+  const refusals = await events.aggregate([{ $match: { type: 'refused' } }, { $group: { _id: '$homeId', n: { $sum: 1 } } }]).toArray();
+  const refusedInKidHomes = refusals.filter((r) => kidHomes.some((h) => h._id === r._id)).reduce((s, r) => s + r.n, 0);
+  const refusedElsewhere = refusals.reduce((s, r) => s + r.n, 0) - refusedInKidHomes;
+
+  const homesKnowing = allHomes.filter((h) => Object.keys(h.activeLessons ?? {}).length > 0).length;
+  const caughtUp = await events.countDocuments({ type: 'caught_up' });
+  const runsOk = await runs.countDocuments({ outcome: 'ok' });
+  const runsFailed = await runs.countDocuments({ outcome: { $ne: 'ok' } });
+  const lessonCounts = await lessons.aggregate([{ $group: { _id: '$status', n: { $sum: 1 } } }]).toArray();
+
+  return {
+    at: new Date(),
+    invariant: { kidsHomeViolations: violations },
+    ripple, lastRollback,
+    refusals: { kidHomes: refusedInKidHomes, otherHomes: refusedElsewhere },
+    homesOnline: allHomes.filter((h) => h.online).length, homesTotal: allHomes.length, homesKnowing,
+    caughtUp, runs: { ok: runsOk, failed: runsFailed },
+    lessons: Object.fromEntries(lessonCounts.map((c) => [c._id, c.n])),
+  };
+}
