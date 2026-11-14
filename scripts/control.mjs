@@ -4,6 +4,7 @@
 import http from 'node:http';
 import { spawn, execFile, execFileSync } from 'node:child_process';
 import path from 'node:path';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -67,8 +68,19 @@ async function health() {
   log(`✓ ${note}`); return note;
 }
 
+// Score the run on the board before anything wipes it, and keep a copy in .state/runs/.
+async function scoreBeforeWipe() {
+  if (!(await up())) return;
+  const out = await new Promise((resolve) => execFile('node', ['scripts/run-check.mjs'], { cwd: ROOT, env: childEnv, timeout: 20000 }, (err, o) => resolve(err ? '' : o)));
+  if (!out || out.startsWith('No run yet')) return;
+  card = out.split('\n').filter((l) => l && !l.startsWith('SUMMARY')).join('\n');
+  const stamp = new Date().toLocaleTimeString('en-CA', { hour12: false }).replace(/:/g, '');
+  try { mkdirSync(path.join(ROOT, '.state', 'runs'), { recursive: true }); writeFileSync(path.join(ROOT, '.state', 'runs', `run-${stamp}.txt`), out); } catch {}
+  log(`✓ scored the run before reset: ${(out.match(/^SUMMARY (.*)$/m) ?? [])[1] ?? ''}`);
+}
+
 const ACTIONS = {
-  reset: { label: 'Reset & start', run: async () => { await stop(); await run('scripts/demo-reset.ts', 'reset demo state'); await run('scripts/voice-warm.ts', 'warm robot voices'); await start(); return health(); } },
+  reset: { label: 'Reset & start', run: async () => { await scoreBeforeWipe(); await stop(); await run('scripts/demo-reset.ts', 'reset demo state'); await run('scripts/voice-warm.ts', 'warm robot voices'); await start(); return health(); } },
   restart: { label: 'Restart (keep memory)', run: async () => { await stop(); await start(); return health(); } },
   start: { label: 'Start', run: async () => { await start(); return health(); } },
   stop: { label: 'Stop (pull the plug)', run: stop },
