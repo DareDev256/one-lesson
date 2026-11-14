@@ -17,7 +17,7 @@ Track: **Memory You Can Govern**. Built at *Agents in Context Toronto* (MongoDB 
 5. **Trace and undo.** The lineage shows v1 (James) → v2 (Alex) → "evening reset" (built on v2), and which homes ran or refused each one. The server allows rollback only for James; Alex gets a 403. One click and every home that took v2 is back on v1. Ask Home 2 again: the knife goes high.
 6. **This is Toronto.** Ask Home 5 "range les couteaux et les ciseaux" and it answers in French, in its own voice, from the same English lesson.
 7. **Pull the plug.** Kill the server. Another server writes a lesson while ours is down. Restart. Every home resumes its change stream from its saved resume token and catches up. The board reads "memory in sync 6/6, 0 lessons missing".
-8. **Forget me.** A teacher asks to be forgotten. In one transaction every lesson they taught leaves every home, and their name is erased from the lessons, the teacher record, the event log and the receipt.
+8. **Forget me.** A teacher asks to be forgotten. In one transaction every lesson they taught leaves every home, and who they were is replaced by a one-way pseudonym on the lessons, the event log and every receipt that named them; the lessons' search text is blanked. Their cached voice lines are deleted, and a hashed tombstone stops them teaching again.
 
 ## What MongoDB Atlas does here
 
@@ -37,7 +37,7 @@ Everything runs on the event's MongoDB Atlas Sandbox (M10, AWS us-west-1, MongoD
 ## What ElevenLabs does here
 
 - **Teach by talking.** Hold the mic and say "Kitchen tidy. Put the knife and the scissors in the bottom drawer." ElevenLabs **Scribe** (`scribe_v2`) transcribes it. A deterministic parser turns the transcript into steps, so the safety tags never come from a model. (`server/voice.ts` `hear`, `server/domain.ts` `parseSpokenLesson`)
-- **Ask by talking, in four languages.** Hold V and ask any home a question in English, French, Spanish or Mandarin. Scribe detects the language (trusted only when confident; otherwise the words decide, defaulting to English), Atlas finds the English lesson, and the robot answers in that language. We shipped only the languages that cleared the 0.60 floor in `scripts/probe-multilingual.ts`: French (0.826 for the dishes, 0.78 for the tidy), Spanish (0.650, 0.733), Mandarin (0.791, 0.745). Tamil and Hindi did not, so they are not offered.
+- **Ask by talking, in four languages.** Hold V and ask any home a question in English, French, Spanish or Mandarin. Scribe detects the language (trusted only when confident; otherwise the words decide, defaulting to English), Atlas finds the English lesson, and the robot answers in that language. We shipped the languages that cleared the 0.60 floor in `scripts/probe-multilingual.ts` on the phrasings we tried: French (0.826 for the dishes, 0.78 for the tidy), Spanish (0.651, 0.733), Mandarin (0.791, 0.745). Tamil and Hindi missed the floor on the phrasings we tried, so they are not offered. French and Spanish are covered by the smoke test; Mandarin spoken replies were checked through Scribe only, and the stock voice garbles some Mandarin words.
 - **Ask "who taught you that?"** The home answers aloud from its last run, the lesson's `$graphLookup` ancestors and the event log.
 - **Every robot has its own voice.** Six homes, six ElevenLabs voices (`eleven_flash_v2_5`). They say what they learned, what they refused and why, and when they rolled back. Lines are cached on disk, so the stage plays from cache. (`server/voice.ts` `say`)
 
@@ -57,7 +57,7 @@ Open http://localhost:8787 for the presenter console and `/teach` for the phone 
 
 - `npm run demo`: reset the demo state and start the server in one command
 - `npm test`: 14 unit tests (tag rules, refusals, spoken-lesson parser, language choice, provenance phrasing). Mutation-checked: disabling the kids' rule fails 1, never computing `sharp+child-reach` fails 3.
-- `npm run smoke`: 21 checks over the demo beats against a running server (run after `demo:reset`), including French and Spanish asks, spoken provenance and forget erasure
+- `npm run smoke`: 24 checks over the demo beats against a running server (run after `demo:reset`), including French and Spanish asks, spoken provenance, and that forget leaves no trace of the name and blocks a return
 - `npm run voice:warm`: pre-generates every line the robots say in the demo
 
 Presenter keys: **V** hold to talk · **T** teach · **L** lineage · **Shift+1/2/3** lessons · **Shift+4** French ask · **Shift+5** Mandarin ask · **Shift+6** "who taught you that?" · right-click a face for its kitchen and to take it offline.
@@ -66,8 +66,8 @@ Presenter keys: **V** hold to talk · **T** teach · **L** lineage · **Shift+1/
 
 Each figure was measured on 14 November 2026 against the sandbox cluster, from Toronto to us-west-1.
 
-- Publish to the last home hearing it: 179 to 863 ms across six homes over today's runs (saved evidence: 179 and 382 ms), computed from `events` timestamps.
-- Rollback across four homes: 602 to 2,281 ms over today's runs (Toronto to us-west-1; each home does several round trips).
+- Publish to the last home hearing it: 179 and 382 ms across six homes in the two runs we saved, computed from `events` timestamps.
+- Rollback across four homes: 1,572 ms in the saved smoke run; the recorded video's run on the venue network shows 4,756 ms (Toronto to us-west-1; each home does several round trips).
 - Ask, "put the dishes away" on Home 2: best rerank score 0.435 before the dishwasher lesson exists, 0.639 after. The match floor is 0.60.
 - Pull the plug: 6 of 6 homes caught up from resume tokens, 0 lessons missing.
 - Auto-embedding lag: a new lesson was searchable 1.9 s after insert. Ask waits out that window.

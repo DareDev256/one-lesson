@@ -4,6 +4,11 @@ import type { ChangeStream, ChangeStreamDocument } from 'mongodb';
 import { client, collections, GOOD_STATUSES, type FleetEvent, type Home, type Lesson } from './db';
 import { adaptToLayout, blockingRule, computeTags, describeSteps, lessonText, pathLength, PROVENANCE_ASK, validateSteps, type Lang } from './domain';
 import { embed, EMBED_MODE, RERANK_MODEL } from './embed';
+import { createHash } from 'node:crypto';
+import { purgeVoiceLines } from './voice';
+
+/** One-way pseudonym for a forgotten teacher. The tombstone lets us refuse their return without keeping who they were. */
+export const tombstoneId = (teacherId: string) => `forgotten:${createHash('sha256').update(`one-lesson|${teacherId}`).digest('hex').slice(0, 16)}`;
 
 export interface Teacher { id: string; name: string; verified: boolean }
 
@@ -46,8 +51,7 @@ export async function publish(input: {
 }) {
   const { lessons, teachers } = await collections();
   const steps = validateSteps(input.steps);
-  const t = await teachers.findOne({ _id: input.teacher.id as any });
-  if (t?.forgottenAt) throw new Error('this teacher has been forgotten');
+  if (await teachers.findOne({ _id: tombstoneId(input.teacher.id) as any })) throw Object.assign(new Error('this teacher asked to be forgotten'), { status: 403 });
   await teachers.updateOne(
     { _id: input.teacher.id as any },
     { $set: { name: input.teacher.name, verified: input.teacher.verified }, $setOnInsert: { forgottenAt: null } },
@@ -369,23 +373,27 @@ export async function forgetTeacher(teacherId: string, actor: Teacher) {
   const taught = await lessons.find({ teacherId, status: { $ne: 'forgotten' } }, { projection: { _id: 1 } }).toArray();
   const ids = taught.map((l) => l._id);
   const homesHolding = await events.distinct('homeId', { lessonId: { $in: ids }, type: 'delivered' });
+  const pseudo = tombstoneId(teacherId);
   const session = client.startSession();
   let receiptId: unknown;
   try {
     await session.withTransaction(async () => {
-      // Retire every lesson they taught AND erase who they were: the name leaves the lessons, the
-      // teacher record, the event log and the receipt. The lesson text is blanked so search can't find it.
-      await lessons.updateMany({ teacherId }, { $set: { status: 'forgotten', expiresAt: null, teacherName: 'a forgotten teacher', embedText: 'forgotten lesson' } }, { session });
-      await teachers.updateOne({ _id: teacherId as any }, { $set: { forgottenAt: new Date(), name: null } }, { session });
-      await events.updateMany({ teacherId }, { $unset: { 'detail.teacherName': '', 'detail.by': '' } }, { session });
-      const r = await receipts.insertOne({ type: 'forget', teacherId, lessonIds: ids, homes: homesHolding, startedAt: new Date(), erased: ['lessons.teacherName', 'lessons.embedText', 'teachers.name', 'events.detail.teacherName'] }, { session });
+      // One transaction: retire every lesson they taught and replace who they were with a one-way pseudonym
+      // on lessons, the event log and any receipt that names them. The search text is blanked too.
+      await lessons.updateMany({ teacherId }, { $set: { status: 'forgotten', expiresAt: null, teacherId: pseudo, teacherName: 'a forgotten teacher', embedText: 'forgotten lesson' } }, { session });
+      await events.updateMany({ teacherId }, { $set: { teacherId: pseudo }, $unset: { 'detail.teacherName': '', 'detail.by': '' } }, { session });
+      await receipts.updateMany({ 'by.id': teacherId }, { $set: { by: { id: pseudo, name: 'a forgotten teacher', verified: false } } }, { session });
+      await teachers.deleteOne({ _id: teacherId as any }, { session });
+      await teachers.insertOne({ _id: pseudo as any, name: null, verified: false, forgottenAt: new Date() }, { session });
+      const r = await receipts.insertOne({ type: 'forget', teacherId: pseudo, lessonIds: ids, homes: homesHolding, startedAt: new Date(), erased: ['teacherId (now a one-way pseudonym)', 'teacherName', 'lessons.embedText', 'events.detail.teacherName', 'receipts.by'] }, { session });
       receiptId = r.insertedId;
     });
   } finally {
     await session.endSession();
   }
-  await emit({ type: 'forgotten', teacherId, detail: { ids, homes: homesHolding, receiptId } });
-  return { receiptId, lessonIds: ids, homes: homesHolding };
+  const voiceFilesPurged = purgeVoiceLines(actor.name);
+  await emit({ type: 'forgotten', teacherId: pseudo, detail: { ids, homes: homesHolding, receiptId, voiceFilesPurged } });
+  return { receiptId, lessonIds: ids, homes: homesHolding, pseudonym: pseudo, voiceFilesPurged };
 }
 
 // ---------------------------------------------------------------- scoreboard (measured, never typed)

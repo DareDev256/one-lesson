@@ -2,7 +2,7 @@
 // rehearsal pays for each line once and the stage demo plays from cache.
 import 'dotenv/config';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 
 const KEY = process.env.ELEVENLABS_API_KEY;
@@ -31,7 +31,10 @@ export async function say(homeId: string, text: string, lang = 'en'): Promise<Bu
   mkdirSync(CACHE, { recursive: true });
   const tag = lang === 'en' ? '' : `|${lang}`;
   const file = path.join(CACHE, createHash('sha256').update(`${MODEL}|${voice.id}|${clean}${tag}`).digest('hex').slice(0, 24) + '.mp3');
-  if (existsSync(file)) return readFileSync(file);
+  if (existsSync(file)) {
+    if (!readIndex()[path.basename(file)]) indexLine(path.basename(file), clean);
+    return readFileSync(file);
+  }
   if (!KEY) throw Object.assign(new Error('no ELEVENLABS_API_KEY'), { status: 503 });
   if (generated >= MAX_NEW_PER_RUN) throw Object.assign(new Error('voice cap reached for this run'), { status: 429 });
   const res = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voice.id}?output_format=mp3_44100_64`, {
@@ -43,7 +46,31 @@ export async function say(homeId: string, text: string, lang = 'en'): Promise<Bu
   const buf = Buffer.from(await res.arrayBuffer());
   generated++;
   writeFileSync(file, buf);
+  indexLine(path.basename(file), clean);
   return buf;
+}
+
+// The cache keeps an index of what each file says, so a forgotten teacher's name can be purged from audio too.
+const INDEX = () => path.join(CACHE, 'index.json');
+function readIndex(): Record<string, string> {
+  try { return JSON.parse(readFileSync(INDEX(), 'utf8')); } catch { return {}; }
+}
+function indexLine(file: string, text: string) {
+  const idx = readIndex(); idx[file] = text; writeFileSync(INDEX(), JSON.stringify(idx));
+}
+/** Delete every cached line that says this name. Returns how many files went. */
+export function purgeVoiceLines(name: string): number {
+  if (!name) return 0;
+  const idx = readIndex();
+  const re = new RegExp(`\\b${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i');
+  let n = 0;
+  for (const [file, text] of Object.entries(idx)) {
+    if (!re.test(text)) continue;
+    try { unlinkSync(path.join(CACHE, file)); } catch {}
+    delete idx[file]; n++;
+  }
+  writeFileSync(INDEX(), JSON.stringify(idx));
+  return n;
 }
 
 /** What each robot says. Kept short so it lands while the face is still lit. */

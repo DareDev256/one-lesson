@@ -88,10 +88,12 @@ check(sb.caughtUp >= 1, `offline Home 4 caught up on ${sb.caughtUp} missed chang
 const f = await call('/api/forget', {}, 'Alex');
 check(f.status === 200 && f.body.lessonIds?.length >= 1, `Alex forgotten: ${f.body.lessonIds?.length} lesson(s), receipt ${String(f.body.receiptId).slice(-6)}`);
 const after = (await call('/api/lessons')).body as any[];
-const alexLeft = after.filter((l) => l.teacherId === 'unverified:alex' && (l.teacherName === 'Alex' || l.status !== 'forgotten'));
-check(alexLeft.length === 0, `no lesson still names Alex or stays active (${alexLeft.length})`);
 const st = (await call('/api/state')).body;
-check(!st.events.some((e: any) => e.teacherId === 'unverified:alex' && e.detail?.teacherName), 'event log no longer carries the name');
+const blob = JSON.stringify([after, st.events]);
+check(!/alex/i.test(blob), `no lesson or event still carries the name or an ID derived from it (${(blob.match(/alex/gi) ?? []).length} hits)`);
+check(f.body.pseudonym?.startsWith('forgotten:'), `replaced by a one-way pseudonym ${f.body.pseudonym}; ${f.body.voiceFilesPurged} cached voice line(s) purged`);
+const back = await call('/api/publish', { title: 'sneak back', steps: S.dishwasher }, 'Alex');
+check(back.status === 403, `a forgotten teacher cannot teach again (HTTP ${back.status})`);
 
 console.log(failures ? `\n${failures} FAILED` : '\nall beats pass');
 process.exit(failures ? 1 : 0);
