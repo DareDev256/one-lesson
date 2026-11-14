@@ -1,0 +1,18 @@
+{
+  "name": "one-lesson",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Teach one robot. Every robot learns. Undo it in one click. A governed skill memory for a robot fleet on MongoDB Atlas.",
+  "type": "module",
+  "license": "MIT",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "setup": "tsx scripts/setup.ts",
+    "demo:reset": "tsx scripts/demo-reset.ts",
+    "dev": "tsx watch server/index.ts",
+    "start": "tsx server/index.ts",
+    "web:dev": "vite --config web/vite.config.ts",
+    "build": "vite build --config web/vite.config.ts",
+    "test": "vitest run"
+  }
+}
