@@ -28,6 +28,7 @@ export interface Provenance {
   took: number; refused: number;
 }
 const n = (k: number, one: string, many: string) => `${k} ${k === 1 ? one : many}`;
+const cn = (k: number) => ['零', '一', '二', '三', '四', '五', '六', '七', '八', '九', '十'][k] ?? String(k);
 
 export const LINES: Record<Lang, {
   unknown: string; blockedAsk: string; refused: string;
@@ -66,9 +67,10 @@ export const LINES: Record<Lang, {
     unknown: '我还不会做这个。',
     blockedAsk: '这里我不会做。这个家里有孩子。',
     refused: '拒绝。这个家里有孩子。',
-    ran: (t, v, who, k) => `${t}，第${v}版，${who}教的。${k === 'low' ? '刀放在下面。' : k === 'high' ? '刀放在上面。' : ''}`,
-    reverted: (v) => (v ? `已回到第${v}版。` : '已忘记。'),
+    // No English title inside Mandarin speech, Chinese numerals, and 刀子 not 刀: all three measured clearer through Scribe.
+    ran: (_t, v, who, k) => `这是${who}教的，第${cn(v)}版。${k === 'low' ? '刀子放在低处。' : k === 'high' ? '刀子放在高处。' : ''}`,
+    reverted: (v) => (v ? `已回到第${cn(v)}版。` : '已忘记。'),
     provenance: (p) => !p ? '我还什么都没做。' :
-      `这是${p.lesson.teacherName}教我的：${p.lesson.title}，第${p.lesson.version}版${p.parents[0] ? `，基于${p.parents[0].teacherName}的第${p.parents[0].version}版` : ''}。${p.took}个家接受了，${p.refused}个拒绝了。`,
+      `这是${p.lesson.teacherName}教我的，第${cn(p.lesson.version)}版${p.parents[0] ? `，基于${p.parents[0].teacherName}的第${cn(p.parents[0].version)}版` : ''}。${p.took}个家接受了，${p.refused}个拒绝了。`,
   },
 };

@@ -67,6 +67,14 @@ r = await ask('home-2', 'tidy the kitchen');
 check(knife(r) === 'high_cabinet' && r.lesson?.version === 1, `after rollback Home 2: knife → ${knife(r)} (v${r.lesson?.version})`);
 check(!r.matches.some((m: any) => m.id === 'kitchen-tidy@v2'), 'rolled-back v2 no longer appears in search');
 
+// Multilingual ask and spoken provenance
+r = await ask('home-5', 'range les couteaux et les ciseaux');
+check(r.lang === 'fr' && knife(r) === 'high_cabinet', `French to Home 5: lang ${r.lang}, knife → ${knife(r)} (score ${r.matches?.[0]?.score})`);
+r = await ask('home-2', 'guarda los platos');
+check(r.lang === 'es' && r.lesson?.title === 'load the dishwasher', `Spanish to Home 2: lang ${r.lang}, runs "${r.lesson?.title}"`);
+r = await ask('home-2', 'who taught you that?');
+check(r.answer === 'provenance' && r.provenance?.lesson?.teacherName === 'James', `Home 2 "who taught you that?": ${r.say}`);
+
 // Offline home catches up from its resume token
 await call('/api/homes/home-4/offline', {});
 await call('/api/publish', { title: 'rinse the pan', originHomeId: 'home-1', steps: [{ action: 'pick', objectType: 'pan' }, { action: 'place', targetType: 'sink' }] }, 'James');
@@ -75,6 +83,15 @@ await call('/api/homes/home-4/online', {});
 await sleep(2000);
 sb = (await call('/api/scoreboard')).body;
 check(sb.caughtUp >= 1, `offline Home 4 caught up on ${sb.caughtUp} missed change(s) after reconnecting`);
+
+// Forget me erases the teacher, not just their lessons
+const f = await call('/api/forget', {}, 'Alex');
+check(f.status === 200 && f.body.lessonIds?.length >= 1, `Alex forgotten: ${f.body.lessonIds?.length} lesson(s), receipt ${String(f.body.receiptId).slice(-6)}`);
+const after = (await call('/api/lessons')).body as any[];
+const alexLeft = after.filter((l) => l.teacherId === 'unverified:alex' && (l.teacherName === 'Alex' || l.status !== 'forgotten'));
+check(alexLeft.length === 0, `no lesson still names Alex or stays active (${alexLeft.length})`);
+const st = (await call('/api/state')).body;
+check(!st.events.some((e: any) => e.teacherId === 'unverified:alex' && e.detail?.teacherName), 'event log no longer carries the name');
 
 console.log(failures ? `\n${failures} FAILED` : '\nall beats pass');
 process.exit(failures ? 1 : 0);

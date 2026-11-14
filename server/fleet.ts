@@ -365,22 +365,26 @@ export async function rollback(lessonId: string, actor: Teacher, allowed: (t: Te
 export async function forgetTeacher(teacherId: string, actor: Teacher) {
   if (actor.id !== teacherId) throw Object.assign(new Error('you can only forget yourself'), { status: 403 });
   const { lessons, teachers, receipts, events } = await collections();
-  const taught = await lessons.find({ teacherId, status: { $in: GOOD_STATUSES } }, { projection: { _id: 1 } }).toArray();
+  // Everything they ever taught, including lessons already rolled back: the receipt has to account for all of it.
+  const taught = await lessons.find({ teacherId, status: { $ne: 'forgotten' } }, { projection: { _id: 1 } }).toArray();
   const ids = taught.map((l) => l._id);
   const homesHolding = await events.distinct('homeId', { lessonId: { $in: ids }, type: 'delivered' });
   const session = client.startSession();
   let receiptId: unknown;
   try {
     await session.withTransaction(async () => {
-      await lessons.updateMany({ _id: { $in: ids } }, { $set: { status: 'forgotten', expiresAt: null } }, { session });
-      await teachers.updateOne({ _id: teacherId as any }, { $set: { forgottenAt: new Date() } }, { session });
-      const r = await receipts.insertOne({ type: 'forget', by: actor, lessonIds: ids, homes: homesHolding, startedAt: new Date() }, { session });
+      // Retire every lesson they taught AND erase who they were: the name leaves the lessons, the
+      // teacher record, the event log and the receipt. The lesson text is blanked so search can't find it.
+      await lessons.updateMany({ teacherId }, { $set: { status: 'forgotten', expiresAt: null, teacherName: 'a forgotten teacher', embedText: 'forgotten lesson' } }, { session });
+      await teachers.updateOne({ _id: teacherId as any }, { $set: { forgottenAt: new Date(), name: null } }, { session });
+      await events.updateMany({ teacherId }, { $unset: { 'detail.teacherName': '', 'detail.by': '' } }, { session });
+      const r = await receipts.insertOne({ type: 'forget', teacherId, lessonIds: ids, homes: homesHolding, startedAt: new Date(), erased: ['lessons.teacherName', 'lessons.embedText', 'teachers.name', 'events.detail.teacherName'] }, { session });
       receiptId = r.insertedId;
     });
   } finally {
     await session.endSession();
   }
-  await emit({ type: 'forgotten', teacherId, detail: { ids, homes: homesHolding, by: actor.name, receiptId } });
+  await emit({ type: 'forgotten', teacherId, detail: { ids, homes: homesHolding, receiptId } });
   return { receiptId, lessonIds: ids, homes: homesHolding };
 }
 
