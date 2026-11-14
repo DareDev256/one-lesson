@@ -1,7 +1,8 @@
 // Records the demo end to end in a real browser against the real server and writes a cue sheet
 // (what each robot said, and when) so the audio can be laid back over the silent recording.
-// Alex's lesson is spoken into a simulated microphone (Chromium fake capture) and goes through
-// ElevenLabs Scribe like a live mic would.
+// James's lesson is spoken into a simulated microphone (Chromium fake capture) and goes through
+// ElevenLabs Scribe like a live mic would. Beats follow the pitch: cold ask, teach by voice, bad lesson,
+// same words, "who taught you that?", rollback, French.
 // Usage: node scripts/record-demo.mjs  (expects PW_EXEC for a local Chromium; restarts the server itself)
 import { chromium } from 'playwright';
 import { execSync, spawn } from 'node:child_process';
@@ -29,7 +30,7 @@ startServer(); await waitUp();
 
 const browser = await chromium.launch({
   executablePath: process.env.PW_EXEC,
-  args: ['--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream', `--use-file-for-fake-audio-capture=${path.join(OUT, 'alex.wav')}`, '--autoplay-policy=no-user-gesture-required'],
+  args: ['--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream', `--use-file-for-fake-audio-capture=${path.join(OUT, process.env.MIC_WAV ?? 'james.wav')}`, '--autoplay-policy=no-user-gesture-required'],
 });
 const ctx = await browser.newContext({ viewport: { width: 1920, height: 1080 }, recordVideo: { dir: OUT, size: { width: 1920, height: 1080 } }, permissions: ['microphone'] });
 const page = await ctx.newPage();
@@ -55,54 +56,65 @@ const ask = async (homeLabel, text) => {
 };
 
 await ask('H2', 'put the dishes away');
-await sleep(2600);
-
-cue('scene', { name: 'teach' });
-await page.keyboard.press('Shift+!');
-await sleep(3200);
-await ask('H2', 'put the dishes away');
-await sleep(3000);
+await sleep(2000);
 
 cue('scene', { name: 'voice-teach' });
 await page.keyboard.press('t');
-await sleep(600);
-await page.locator('.drawer-head button', { hasText: 'Alex' }).click();
-await sleep(400);
+await sleep(500);
+await page.locator('.drawer-head button', { hasText: 'James' }).click();
 await page.keyboard.down('v');
 cue('mic', { on: true });
-await sleep(5600);
+await sleep(5200);
 await page.keyboard.up('v');
 cue('mic', { on: false });
 await page.waitForSelector('.heard', { timeout: 20000 });
-await sleep(1500);
+await sleep(900);
 await page.locator('.drawer button.primary', { hasText: 'Teach the fleet' }).click();
-cue('scene', { name: 'bad-lesson' });
-await sleep(3800);
+cue('scene', { name: 'ripple' });
+await sleep(1800);
 await page.keyboard.press('Escape');
+await ask('H2', 'put the dishes away');
+await sleep(2800);
+
+cue('scene', { name: 'bad-lesson' });
+await page.keyboard.press('Shift+Digit2');
+await sleep(5200);
 
 cue('scene', { name: 'same-words' });
 await ask('H2', 'tidy the kitchen');
-await sleep(3800);
+await sleep(4000);
 await ask('H5·kids', 'tidy the kitchen');
 await sleep(3800);
 
+cue('scene', { name: 'who' });
+await page.getByRole('button', { name: 'H2', exact: true }).click();
+await page.locator('.askbar input').fill('who taught you that?');
+await page.locator('.askbar button.primary').click();
+await sleep(7600);
+
 cue('scene', { name: 'rollback' });
 await page.keyboard.press('l');
-await sleep(1800);
+await sleep(1300);
 await page.locator('.node', { hasText: 'kitchen tidy v2' }).locator('button.danger').click();
-await sleep(3500);
+await sleep(2600);
 await page.keyboard.press('Escape');
 await ask('H2', 'tidy the kitchen');
-await sleep(3500);
+await sleep(3600);
 
+cue('scene', { name: 'toronto' });
+await page.keyboard.press('Shift+Digit4');
+await sleep(5200);
+cue('scene', { name: 'end' });
+await sleep(1200);
+
+if (process.env.WITH_PLUG) {
 cue('scene', { name: 'pull-plug' });
 killServer();
 await sleep(2200);
 execSync('npx tsx scripts/publish-direct.ts', { stdio: 'inherit' });
 startServer(); await waitUp();
 await sleep(4500);
-cue('scene', { name: 'end' });
-await sleep(1500);
+}
 
 await ctx.close();
 await browser.close();
