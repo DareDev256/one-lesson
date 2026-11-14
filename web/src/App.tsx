@@ -57,6 +57,8 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const [heard, setHeard] = useState<string | null>(null);
   const [agentOpen, setAgentOpen] = useState(false);
+  // The undo moment: a banner that names what was rolled back and fills in the measured homes and ms as reverts land.
+  const [rb, setRb] = useState<{ ids: string[]; by: string; receipt: string; until: number } | null>(null);
   const [agentSpeaking, setAgentSpeaking] = useState(false);
   const [split, setSplit] = useState<{ text: string; runs: Record<string, AskResult | null>; key?: string } | null>(null);
   const [sound, setSoundOn] = useState(true);
@@ -111,7 +113,11 @@ export default function App() {
       }, e.homeId === origin ? 0 : TRAVEL_MS);
     }
     if (e.type === 'ran') setLastRun((r) => ({ ...r, [e.homeId!]: { path: d.path, key: `${e.at}` } }));
-    if (e.type === 'rolled_back') { setCaption(`${d.by} rolled back ${e.lessonId} and everything built on it.`); swoosh(); }
+    if (e.type === 'rolled_back') {
+      setCaption(`${d.by} rolled back ${e.lessonId} and everything built on it.`); swoosh();
+      setRb({ ids: d.ids ?? [e.lessonId!], by: d.by ?? 'James', receipt: String(d.receiptId ?? '').slice(-6), until: Date.now() + 5200 });
+      setPanel(null);
+    }
     if (e.type === 'reverted') {
       flash(e.homeId!, 'ring', 1500); say(e.homeId!, d.to ? `Back to v${d.toVersion}` : 'Forgot it', 3000);
       // Four homes revert at once; one voice says it for the room.
@@ -388,6 +394,14 @@ export default function App() {
         </div>
       )}
 
+      {rb && rb.until > Date.now() && (
+        <div className="rb-banner" role="status">
+          <div className="rb-big">ROLLED BACK</div>
+          <div className="rb-what">{rb.ids.map((id) => { const l = fleet.lessons.find((x) => x._id === id); return l ? `"${l.title}" v${l.version}` : id; }).join(' + ')}</div>
+          <div className="rb-num">{sb?.lastRollback ? `${sb.lastRollback.homes} homes back on the safe version · ${sb.lastRollback.ms ?? '…'} ms` : 'reverting…'} · one transaction · receipt {rb.receipt}</div>
+        </div>
+      )}
+
       <AgentPanel open={agentOpen} onClose={() => setAgentOpen(false)}
         onSpeaking={(on) => { setAgentSpeaking(on); if (on) setFocusHome({ id: 'home-5', until: Date.now() + 4000 }); }}
         onToolResult={(t) => { say('home-5', t.length > 44 ? 'Refused: kids\' rule' : t, 5000); flash('home-5', 'refused', 1800); }} />
@@ -462,7 +476,7 @@ function EventLine({ e, homes }: { e: FleetEvent; homes: Home[] }) {
       case 'refused': return `${h} refused "${d.title}" v${d.version} · kids' rule`;
       case 'ran': return `${h} ran "${d.title}" v${d.version} (${d.ms} ms)`;
       case 'rolled_back': return `${d.by} rolled back ${d.ids?.length} lesson(s)`;
-      case 'reverted': return `${h} reverted → ${d.to ?? 'nothing'}`;
+      case 'reverted': return d.to ? `${h} reverted → ${d.to}` : `${h} dropped ${d.from ?? 'it'}`;
       case 'caught_up': return `${h} caught up on ${e.lessonId}`;
       case 'forgotten': return `teacher forgotten: ${d.ids?.length} lessons, ${d.homes?.length} homes`;
       case 'asked': return `${h} asked "${d.text}"`;

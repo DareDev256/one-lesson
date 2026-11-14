@@ -143,8 +143,10 @@ async function handleChange(homeId: string, change: ChangeStreamDocument<Lesson>
     if (current && current.version > lesson.version && GOOD_STATUSES.includes(current.status)) return;
     await homes.updateOne({ _id: homeId }, { $set: { [`activeLessons.${lesson.skillKey}`]: lesson._id } });
     await emit({ type: 'delivered', homeId, lessonId: lesson._id, teacherId: lesson.teacherId, detail: { title: lesson.title, version: lesson.version, teacherName: lesson.teacherName, verified: lesson.teacherVerified, tags: lesson.tags } });
-    await pushHome(homeId);
-    await runLesson({ ...home, activeLessons: { ...home.activeLessons, [lesson.skillKey]: lesson._id } }, lesson, 'ripple');
+    // The memory change and its event are what count; the console push and the demonstration run follow
+    // without holding up this home's next change (each one is a round trip to the cluster).
+    void pushHome(homeId).catch(() => {});
+    void runLesson({ ...home, activeLessons: { ...home.activeLessons, [lesson.skillKey]: lesson._id } }, lesson, 'ripple').catch((e) => console.error(`[${homeId}] run`, e));
     return;
   }
 
@@ -157,8 +159,8 @@ async function handleChange(homeId: string, change: ChangeStreamDocument<Lesson>
     if (fallback) await homes.updateOne({ _id: homeId }, { $set: { [`activeLessons.${lesson.skillKey}`]: fallback._id } });
     else await homes.updateOne({ _id: homeId }, { $unset: { [`activeLessons.${lesson.skillKey}`]: '' } });
     await emit({ type: 'reverted', homeId, lessonId: lesson._id, detail: { from: lesson._id, to: fallback?._id ?? null, toTitle: fallback?.title ?? null, toVersion: fallback?.version ?? null, reason: lesson.status } });
-    await pushHome(homeId);
-    if (fallback) await runLesson(home, fallback, 'ripple');
+    void pushHome(homeId).catch(() => {});
+    if (fallback) void runLesson(home, fallback, 'ripple').catch((e) => console.error(`[${homeId}] run`, e));
   }
 }
 

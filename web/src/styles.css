@@ -181,3 +181,10 @@ input, select { font: 500 16px var(--mono); background: #0b0b0b; color: var(--in
 .agent-line.home { color: var(--ink); }
 .agent-line.tool { font: 600 13px var(--mono); color: var(--accent); }
 .agent-line.err { font: 600 13px var(--mono); color: var(--red); }
+/* the undo moment */
+.rb-banner { position: fixed; left: 50%; top: 42%; transform: translate(-50%, -50%); z-index: 8; background: rgba(0,0,0,.9); border: 3px solid var(--accent); border-radius: 16px; padding: 22px 34px; display: grid; gap: 8px; text-align: center; box-shadow: 0 0 60px rgba(255,90,31,.35); animation: rbin .35s cubic-bezier(.2,.9,.3,1.2); max-width: calc(100vw - 48px); }
+.rb-big { font: 900 72px/1 var(--display); font-stretch: 68%; color: var(--accent); letter-spacing: .02em; }
+.rb-what { font: 700 24px var(--mono); color: var(--ink); }
+.rb-num { font: 600 18px var(--mono); color: var(--green); }
+@keyframes rbin { from { opacity: 0; transform: translate(-50%, -46%) scale(.94); } }
+@media (prefers-reduced-motion: reduce) { .rb-banner { animation: none; } }
