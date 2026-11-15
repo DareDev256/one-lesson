@@ -1,14 +1,29 @@
-# One Lesson
+# One Lesson: MongoDB AI agent memory you can govern and roll back
 
 **Teach one robot. Every robot learns. Undo it in one click.**
 
 One Lesson is a governed skill memory for a fleet of home robots, built on MongoDB Atlas. You teach one robot a household skill, by voice or by tapping. The lesson reaches every home in the fleet live. Each home's own rules decide whether it may take it. Every lesson carries its teacher, a version and a family tree. That means any lesson can be traced, and rolled back across every home at once.
 
-Track: **Memory You Can Govern**. Built at *Agents in Context Toronto* (MongoDB hackathon), 14 November 2026.
+Finalist, top 6 of 98 projects, at *Agents in Context Toronto*, the MongoDB hackathon, 14 November 2026. Track: **Memory You Can Govern**.
 
 **Watch the 60-second demo: [YouTube](https://youtu.be/lPEYVlggBUc) · [onelesson.jamesdare.com](https://onelesson.jamesdare.com)**
 
 ![Same words, two kitchens: Home 2's robot carries the knife down to the low drawer, Home 5's (a kids' home) carries it up to the high cabinet](docs/two-kitchens.gif)
+
+## Quick start
+
+```bash
+git clone https://github.com/DareDev256/one-lesson.git
+cd one-lesson
+npm install
+npm test                      # 16 unit tests, no services needed
+cp .env.example .env          # MONGODB_URI (Atlas), ELEVENLABS_API_KEY (optional)
+npm run setup && npm run demo:reset && npm run build && npm start
+```
+
+Then open http://localhost:8787. What each step needs is in [Run it](#run-it).
+
+License: MIT, see [LICENSE](LICENSE).
 
 ![Bad lesson: four homes took it (red), the two kids' homes refused it at their shields](docs/screenshots/2026-11-14_beats-4-bad-settled.png)
 
